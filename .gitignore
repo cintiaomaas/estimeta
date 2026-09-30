@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# environment variables
+.env*
+!.env.example
+*.tsbuildinfo
+coverage/
+
+# logs
+*.log
+
+# editor directories and files
+public/swagger/
+.tmp/
+docs/
+AGENTS.md

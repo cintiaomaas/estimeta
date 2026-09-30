@@ -1,0 +1,6 @@
+body { margin: 0; background: #fafafa; }
+header { padding: 24px; color: #174e40; font-family: system-ui, sans-serif; }
+header h1 { font-size: 1.5rem; }
+header a { color: #174e40; }
+header a:focus-visible { outline: 3px solid #174e40; outline-offset: 4px; }
+.swagger-ui .wrapper { max-width: 1200px; }

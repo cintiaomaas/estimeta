@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum HouseholdRole {
+  OWNER
+  MEMBER
+}
+
+model User {
+  goalsCreated FinancialGoal[]
+  contributionsCreated GoalContribution[]
+  id                    String                 @id @default(uuid()) @db.Char(36)
+  name                  String                 @db.VarChar(100)
+  email                 String                 @unique @db.VarChar(191)
+  passwordHash          String                 @db.VarChar(255)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  membership            HouseholdMember?
+  transactionsCreated   Transaction[]          @relation("TransactionCreator")
+  installmentPlans      InstallmentPlan[]
+  recurringTransactions RecurringTransaction[]
+  transfers             Transfer[]
+}
+
+model Household {
+  goals FinancialGoal[]
+  goalParticipants GoalParticipant[]
+  goalContributions GoalContribution[]
+  id                    String                 @id @default(uuid()) @db.Char(36)
+  name                  String                 @db.VarChar(150)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  members               HouseholdMember[]
+  accounts              Account[]
+  categories            Category[]
+  transactions          Transaction[]
+  financialDefaultsAt   DateTime?
+  incomePlanning        IncomePlanning?
+  installmentPlans      InstallmentPlan[]
+  recurringTransactions RecurringTransaction[]
+  transfers             Transfer[]
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  CASH
+  INVESTMENT
+  OTHER
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionStatus {
+  PENDING
+  RECEIVED
+  PAID
+}
+
+model Account {
+  goals FinancialGoal[]
+  goalContributions GoalContribution[]
+  id                    String                 @id @default(uuid()) @db.Char(36)
+  householdId           String                 @db.Char(36)
+  name                  String                 @db.VarChar(100)
+  type                  AccountType
+  initialBalance        Decimal                @default(0) @db.Decimal(15, 2)
+  includeInTotalBalance Boolean                @default(true)
+  isActive              Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  household             Household              @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  outgoingTransfers     Transfer[]             @relation("TransferSource")
+  incomingTransfers     Transfer[]             @relation("TransferDestination")
+
+  @@unique([id, householdId])
+  @@index([householdId, isActive])
+}
+
+model Category {
+  id                    String                  @id @default(uuid()) @db.Char(36)
+  householdId           String                  @db.Char(36)
+  name                  String                  @db.VarChar(100)
+  type                  TransactionType
+  isActive              Boolean                 @default(true)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  household             Household               @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  transactions          Transaction[]
+  planningLinks         PlanningGroupCategory[]
+  recurringTransactions RecurringTransaction[]
+
+  @@unique([householdId, type, name])
+  @@unique([id, householdId])
+}
+
+enum PlanningIncomeSource {
+  REALIZED
+  MANUAL
+}
+
+model IncomePlanning {
+  householdId     String               @id @db.Char(36)
+  enabled         Boolean              @default(false)
+  incomeSource    PlanningIncomeSource @default(REALIZED)
+  referenceIncome Decimal              @default(0) @db.Decimal(15, 2)
+  revision        Int                  @default(0)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  household       Household            @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  groups          PlanningGroup[]
+}
+
+model PlanningGroup {
+  id              String                  @id @default(uuid()) @db.Char(36)
+  householdId     String                  @db.Char(36)
+  name            String                  @db.VarChar(100)
+  percentage      Decimal                 @db.Decimal(5, 2)
+  alertPercentage Decimal                 @db.Decimal(5, 2)
+  active          Boolean                 @default(true)
+  position        Int
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  planning        IncomePlanning          @relation(fields: [householdId], references: [householdId], onDelete: Cascade)
+  categories      PlanningGroupCategory[]
+
+  @@unique([id, householdId])
+  @@index([householdId])
+}
+
+model PlanningGroupCategory {
+  planningGroupId String        @db.Char(36)
+  categoryId      String        @db.Char(36)
+  householdId     String        @db.Char(36)
+  group           PlanningGroup @relation(fields: [planningGroupId, householdId], references: [id, householdId], onDelete: Cascade, onUpdate: Restrict)
+  category        Category      @relation(fields: [categoryId, householdId], references: [id, householdId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([planningGroupId, categoryId])
+  @@index([categoryId, householdId])
+  @@index([planningGroupId, householdId])
+}
+
+model Transaction {
+  id                    String               @id @default(uuid()) @db.Char(36)
+  householdId           String               @db.Char(36)
+  accountId             String               @db.Char(36)
+  categoryId            String               @db.Char(36)
+  type                  TransactionType
+  description           String               @db.VarChar(200)
+  amount                Decimal              @db.Decimal(15, 2)
+  scheduledDate         DateTime             @db.Date
+  transactionDate       DateTime?            @db.Date
+  competenceDate        DateTime             @db.Date
+  status                TransactionStatus    @default(PENDING)
+  notes                 String?              @db.VarChar(2000)
+  createdBy             String               @db.Char(36)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  household             Household            @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  account               Account              @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  category              Category             @relation(fields: [categoryId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  creator               User                 @relation("TransactionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  installmentPlanId     String?              @db.Char(36)
+  installmentNumber     Int?
+  installmentCount      Int?
+  installmentPlan       InstallmentPlan?     @relation(fields: [installmentPlanId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  recurringOccurrenceId String?              @unique @db.Char(36)
+  recurringOccurrence   RecurringOccurrence? @relation(fields: [recurringOccurrenceId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([installmentPlanId, installmentNumber])
+  @@unique([recurringOccurrenceId, householdId])
+  @@index([installmentPlanId, householdId])
+  @@index([householdId, competenceDate])
+  @@index([householdId, type, competenceDate])
+  @@index([householdId, scheduledDate])
+  @@index([householdId, transactionDate])
+  @@index([accountId, householdId])
+  @@index([categoryId, householdId])
+  @@index([createdBy])
+}
+
+model HouseholdMember {
+  id          String        @id @default(uuid()) @db.Char(36)
+  householdId String        @db.Char(36)
+  userId      String        @unique @db.Char(36)
+  role        HouseholdRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+  household   Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+model InstallmentPlan {
+  id                  String        @id @default(uuid()) @db.Char(36)
+  householdId         String        @db.Char(36)
+  description         String        @db.VarChar(200)
+  totalAmount         Decimal       @db.Decimal(15, 2)
+  installmentCount    Int
+  firstCompetenceDate DateTime      @db.Date
+  createdBy           String        @db.Char(36)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  household           Household     @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  creator             User          @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  transactions        Transaction[]
+
+  @@unique([id, householdId])
+}
+
+model RecurringTransaction {
+  id          String                @id @default(uuid()) @db.Char(36)
+  householdId String                @db.Char(36)
+  accountId   String                @db.Char(36)
+  categoryId  String                @db.Char(36)
+  type        TransactionType
+  description String                @db.VarChar(200)
+  amount      Decimal               @db.Decimal(15, 2)
+  frequency   String                @default("MONTHLY") @db.VarChar(10)
+  startDate   DateTime              @db.Date
+  endDate     DateTime?             @db.Date
+  dayOfMonth  Int
+  isActive    Boolean               @default(true)
+  notes       String?               @db.VarChar(2000)
+  revision    Int                   @default(0)
+  createdBy   String                @db.Char(36)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  household   Household             @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  creator     User                  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  account     Account               @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  category    Category              @relation(fields: [categoryId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  occurrences RecurringOccurrence[]
+
+  @@unique([id, householdId])
+  @@index([householdId, isActive])
+}
+
+model RecurringOccurrence {
+  id                     String               @id @default(uuid()) @db.Char(36)
+  householdId            String               @db.Char(36)
+  recurringTransactionId String               @db.Char(36)
+  competenceDate         DateTime             @db.Date
+  recurringTransaction   RecurringTransaction @relation(fields: [recurringTransactionId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  transaction            Transaction?
+
+  @@unique([id, householdId])
+  @@unique([recurringTransactionId, competenceDate])
+}
+
+model Transfer {
+  goalContribution GoalContribution?
+  id                   String    @id @default(uuid()) @db.Char(36)
+  householdId          String    @db.Char(36)
+  sourceAccountId      String    @db.Char(36)
+  destinationAccountId String    @db.Char(36)
+  amount               Decimal   @db.Decimal(15, 2)
+  transferDate         DateTime  @db.Date
+  competenceDate       DateTime  @db.Date
+  description          String    @db.VarChar(200)
+  notes                String?   @db.VarChar(2000)
+  createdBy            String    @db.Char(36)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  household            Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  creator              User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  sourceAccount        Account   @relation("TransferSource", fields: [sourceAccountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  destinationAccount   Account   @relation("TransferDestination", fields: [destinationAccountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([householdId, competenceDate])
+  @@unique([id, householdId])
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model FinancialGoal {
+  hasHistory Boolean @default(false)
+  id String @id @default(uuid()) @db.Char(36)
+  householdId String @db.Char(36)
+  name String @db.VarChar(100)
+  description String? @db.VarChar(2000)
+  icon String? @db.VarChar(30)
+  targetAmount Decimal @db.Decimal(15, 2)
+  startDate DateTime @db.Date
+  targetDate DateTime? @db.Date
+  status GoalStatus @default(ACTIVE)
+  accountId String? @db.Char(36)
+  createdBy String @db.Char(36)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  account Account? @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  participants GoalParticipant[]
+  contributions GoalContribution[]
+  @@unique([id, householdId])
+  @@index([householdId, status, targetDate])
+}
+
+model GoalParticipant {
+  id String @id @default(uuid()) @db.Char(36)
+  householdId String @db.Char(36)
+  goalId String @db.Char(36)
+  name String @db.VarChar(100)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  goal FinancialGoal @relation(fields: [goalId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  contributions GoalContribution[]
+  @@unique([id, goalId, householdId])
+  @@unique([goalId, name])
+}
+
+model GoalContribution {
+  id String @id @default(uuid()) @db.Char(36)
+  householdId String @db.Char(36)
+  goalId String @db.Char(36)
+  participantId String? @db.Char(36)
+  accountId String? @db.Char(36)
+  transferId String? @unique @db.Char(36)
+  amount Decimal @db.Decimal(15, 2)
+  contributionDate DateTime @db.Date
+  competenceDate DateTime @db.Date
+  description String? @db.VarChar(2000)
+  createdBy String @db.Char(36)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
+  goal FinancialGoal @relation(fields: [goalId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  participant GoalParticipant? @relation(fields: [participantId, goalId, householdId], references: [id, goalId, householdId], onDelete: Restrict, onUpdate: Restrict)
+  account Account? @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  transfer Transfer? @relation(fields: [transferId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
+  creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  @@unique([transferId, householdId])
+  @@index([householdId, goalId, competenceDate])
+}
