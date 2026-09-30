@@ -27,9 +27,9 @@ function Annual({ data }: { data: AnnualReport }) {
 }
 export function ReportView({ annual = false }: { annual?: boolean }) {
   const [period, setPeriod] = useState(() => ({ year: Number(todayInBrazil().slice(0, 4)), month: Number(todayInBrazil().slice(5, 7)) }));
-  const [result, setResult] = useState<{ key: string; data?: DashboardReport | AnnualReport; error?: string } | null>(null);
+  const [result, setResult] = useState<{ key: string; revision: number; data?: DashboardReport | AnnualReport; error?: string } | null>(null);
   const [revision, setRevision] = useState(0);
-  const key = `${annual}/${period.year}/${annual ? 1 : period.month}/${revision}`;
+  const key = `${annual}/${period.year}/${annual ? 1 : period.month}`;
   useEffect(() => {
     const refresh = () => setRevision((r) => r + 1);
     window.addEventListener("focus", refresh); window.addEventListener("pageshow", refresh);
@@ -38,12 +38,13 @@ export function ReportView({ annual = false }: { annual?: boolean }) {
   useEffect(() => {
     const controller = new AbortController();
     const url = annual ? `/api/reports/annual?year=${period.year}` : `/api/dashboard?year=${period.year}&month=${period.month}`;
-    financialRequest<{ data: DashboardReport | AnnualReport }>(url, { signal: controller.signal }).then(({ data }) => setResult({ key, data })).catch((error: Error) => { if (!controller.signal.aborted) setResult({ key, error: error.message }); });
+    financialRequest<{ data: DashboardReport | AnnualReport }>(url, { signal: controller.signal }).then(({ data }) => { if (!controller.signal.aborted) setResult({ key, revision, data }); }).catch((error: Error) => { if (!controller.signal.aborted) setResult((previous) => ({ key, revision, data: previous?.key === key ? previous.data : undefined, error: error.message })); });
     return () => controller.abort();
-  }, [annual, period.year, period.month, key]);
+  }, [annual, period.year, period.month, key, revision]);
   const loading = result?.key !== key;
+  const refreshing = loading || result?.revision !== revision;
   const years = [...new Set([...(result?.data?.availableYears ?? []), period.year])].sort((a, b) => b - a);
-  return <div className="reports"><div className="page-heading"><div><span className="eyebrow">SEU DINHEIRO, COM CLAREZA</span><h1>{annual ? "Resumo anual" : "Visão mensal"}</h1><p>{annual ? "Acompanhe o ano e a evolução do seu saldo." : "Realizado e previsto, cada um no seu lugar."}</p></div><Link className="text-link" href={annual ? "/dashboard" : "/resumo"}>{annual ? "Ver visão mensal" : "Ver resumo anual"}</Link></div><div className="report-period">{!annual && <label>Mês<select value={period.month} onChange={(e) => setPeriod({ ...period, month: Number(e.target.value) })}>{monthNames.map((m, i) => <option value={i + 1} key={m}>{m}</option>)}</select></label>}<label>Ano<select value={period.year} onChange={(e) => setPeriod({ ...period, year: Number(e.target.value) })}>{years.map((y) => <option key={y}>{y}</option>)}</select></label><button className="button secondary" onClick={() => setRevision((r) => r + 1)} disabled={loading}>Atualizar</button></div>{loading ? <p role="status" className="panel">Carregando seu resumo…</p> : result?.error ? <div role="alert" className="panel"><p>{result.error}</p><button className="button secondary" onClick={() => setRevision((r) => r + 1)}>Tentar novamente</button></div> : result?.data && (annual ? <Annual data={result.data as AnnualReport} /> : <Monthly data={result.data as DashboardReport} />)}</div>;
+  return <div className="reports"><div className="page-heading"><div><span className="eyebrow">SEU DINHEIRO, COM CLAREZA</span><h1>{annual ? "Resumo anual" : "Visão mensal"}</h1><p>{annual ? "Acompanhe o ano e a evolução do seu saldo." : "Realizado e previsto, cada um no seu lugar."}</p></div><Link className="text-link" href={annual ? "/dashboard" : "/resumo"}>{annual ? "Ver visão mensal" : "Ver resumo anual"}</Link></div><div className="report-period">{!annual && <label>Mês<select value={period.month} onChange={(e) => setPeriod({ ...period, month: Number(e.target.value) })}>{monthNames.map((m, i) => <option value={i + 1} key={m}>{m}</option>)}</select></label>}<label>Ano<select value={period.year} onChange={(e) => setPeriod({ ...period, year: Number(e.target.value) })}>{years.map((y) => <option key={y}>{y}</option>)}</select></label><button className="button secondary" onClick={() => setRevision((r) => r + 1)} disabled={refreshing}>{refreshing ? "Atualizando…" : "Atualizar"}</button></div>{!loading && result?.error && result.data && <p role="alert">Não foi possível atualizar o resumo: {result.error}</p>}{loading ? <p role="status" className="panel">Carregando seu resumo…</p> : result?.error && !result.data ? <div role="alert" className="panel"><p>{result.error}</p><button className="button secondary" onClick={() => setRevision((r) => r + 1)}>Tentar novamente</button></div> : result?.data && (annual ? <Annual data={result.data as AnnualReport} /> : <Monthly data={result.data as DashboardReport} />)}</div>;
 }
 
 
