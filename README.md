@@ -150,7 +150,162 @@ Recuperação de senha possui apenas página informativa, sem simular envio. Fut
 
 ## PWA
 
-Manifest, nome estimeta, cores, metadados Apple e ícones PNG 192/512/maskable/180 estão preparados. Não há service worker nem offline nesta fase; a instalação depende das regras do navegador. Não há persistência financeira em localStorage. O SVG fonte está em `public/icon.svg`; `node scripts/generate-icons.mjs` recria os PNGs com `sharp` disponível na árvore do Next.js.
+Manifest, nome estimeta, cores, metadados Apple e ícones PNG 192/512/maskable/180 foram preservados. `public/sw.js` é o único service worker, registrado ao ativar notificações, com eventos `push` e `notificationclick`. Não intercepta requests, não implementa offline nem persiste dados financeiros em localStorage. O SVG fonte está em `public/icon.svg`; `node scripts/generate-icons.mjs` recria os PNGs com `sharp` disponível na árvore do Next.js.
+
+## Notificações Web Push
+
+Funcionalidade opcional em **Configurações → Notificações → Ativar notificações**, para Chrome/Edge desktop e Chrome Android/PWA instalada. **iOS não faz parte do escopo atual.** Firefox usa o mesmo padrão Web Push, sujeito à homologação. Navegação financeira, manifest e ícones permanecem iguais; a permissão só é solicitada ao clicar no botão. Cada dispositivo é ativado/desativado separadamente. Descrição, valor e vencimento podem aparecer na tela bloqueada, conforme informado na interface.
+
+### Arquitetura e regra
+
+Stack inspecionada: Next.js 16.3.5, React 19.3.0, App Router, Auth.js Credentials/JWT, Prisma 6.19.3 e MySQL. Nenhuma biblioteca push ou service worker existia. A nova dependência de runtime é `web-push`; `@types/web-push` é somente de desenvolvimento. Não há SDK Firebase.
+
+`Transaction` já contém `id`, `createdBy`, `householdId`, `description`, `amount`, `scheduledDate` (MySQL DATE) e `status`. O job seleciona somente `type=EXPENSE`, `status=PENDING`, vencendo amanhã. O destinatário é **o autor (`createdBy`)**, desde que ainda pertença ao Household do lançamento e tenha inscrição ativa. Não envia para todos os membros da família. Parcelas e recorrências são elegíveis quando já materializadas em `Transaction`; o job não gera novas recorrências.
+
+O calendário é `America/Sao_Paulo`, reutilizando `todayInBrazil` e `databaseDate`. Primeiro calcula o dia civil brasileiro, soma um dia e compara o MySQL DATE, sem converter o vencimento para o dia anterior. A competência continua independente do vencimento. O clique abre `/despesas?period=AAAA-MM` na competência correspondente; a lista mantém filtros e paginação existentes.
+
+Persistência adicionada pela migration **`20261004120000_web_push`**:
+
+- `PushSubscription`: usuário, endpoint/chaves, hash SHA-256 único do endpoint, estado ativo e auditoria; vários dispositivos por usuário. O hash resolve o limite de índices MySQL para URLs longas e não substitui o endpoint necessário ao envio.
+- `NotificationLog`: referência ao usuário e lançamento, tipo `EXPENSE_DUE_TOMORROW`, vencimento de referência, criação e primeiro aceite pelo provedor (`sentAt`). Restrição única em usuário/lançamento/tipo/data.
+- `NotificationDelivery`: reserva persistente por histórico/hash do endpoint; estados `CLAIMED`, `SENT`, `FAILED`, `EXPIRED`. Restrição única impede corrida entre execuções. O histórico não duplica descrição ou valor.
+- Índice em `Transaction(type, status, scheduledDate, id)`. Migration aditiva, sem apagar ou reescrever dados financeiros. Exclusões legítimas de usuário/lançamento removem seus registros de notificação por cascade.
+
+Rotas seguem a autenticação, validação Zod, checagem de origem e respostas privadas existentes:
+
+| Método / rota | Uso |
+| --- | --- |
+| `POST /api/push/subscriptions` | Ativar a inscrição do usuário da sessão. Body: JSON `PushSubscription.toJSON()`. |
+| `DELETE /api/push/subscriptions` | Desativar somente a inscrição da própria conta. Body: `{ "endpoint": "..." }`. |
+| `POST /api/push/subscriptions/status` | Consultar somente `{ data: { active } }`; endpoint no body, nunca na URL. |
+| `GET /api/cron/due-notifications` | Executar job com `Authorization: Bearer <CRON_SECRET>`, inclusive local. |
+
+Nenhuma rota aceita `userId` do cliente. Um endpoint já pertencente a outra conta nunca é transferido ou removido. Destinos de envio são limitados a HTTPS dos serviços Google, Mozilla e Windows; novos provedores exigem revisão dessa lista. Chaves privadas ficam exclusivamente no módulo de servidor. Logs contêm eventos e contadores, sem payload, endpoints, chaves, SQL ou mensagens originais do provedor.
+
+No logout, o aplicativo desativa a inscrição deste dispositivo e tenta revogá-la no navegador. Para proteger dispositivos compartilhados, o service worker confirma a sessão antes de apresentar valores. Sem conexão, com sessão expirada ou conta diferente, mostra apenas aviso genérico e abre login. O aplicativo continua funcionando se push ou cleanup falhar.
+
+### Ambiente, VAPID e configuração local
+
+Adicione ao `.env` sem substituir as variáveis existentes:
+
+```dotenv
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=
+CRON_SECRET=
+```
+
+Gere um par VAPID localmente usando a dependência instalada:
+
+```powershell
+npx.cmd web-push generate-vapid-keys
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+O primeiro comando produz a chave pública e privada; o segundo gera um `CRON_SECRET` independente (mínimo 32 caracteres). Não compartilhe nem versione as saídas privadas. Use `mailto:` com um e-mail de contato válido em `VAPID_SUBJECT`. A chave pública é a única variável exposta ao navegador e precisa existir **antes do build**. Guarde o par VAPID estável; trocar chaves exige reativação das inscrições. Não há geração automática de secrets no build.
+
+Com `DATABASE_URL` apontando para o ambiente correto:
+
+```powershell
+npm.cmd ci
+npm.cmd run db:generate
+npm.cmd run db:deploy
+npm.cmd run dev
+```
+
+HTTPS é obrigatório em produção e no Android. `http://localhost` é a exceção para desenvolvimento desktop; acesso ao IP da rede por HTTP não habilita Web Push. Faça login e ative em Configurações. Estados apresentados: ativadas, desativadas, permissão bloqueada, navegador incompatível e erro de consulta com nova tentativa. Falta de configuração não impede o uso financeiro.
+
+### Vercel e funcionamento do job
+
+Cadastre as quatro variáveis acima no projeto Vercel, além das variáveis de banco/auth já existentes. Configure o mesmo par VAPID no servidor e build; prefira credenciais separadas entre homologação e produção. Aplique a migration por um processo autorizado com `npm.cmd run db:deploy` antes de liberar o deploy. O build gera Prisma Client, **não aplica migrations**. Faça um novo deploy após configurar ou mudar a chave pública.
+
+`vercel.json` agenda diariamente às **12:00 UTC (09:00 em São Paulo)**. Vercel Cron é habilitado em produção; desenvolvimento e previews precisam de disparo manual. A Vercel envia `CRON_SECRET` no header Authorization. Não há bypass local. Uma chamada sem secret ou com secret inválido retorna 401 antes de acessar o banco.
+
+Não foi possível identificar o plano contratado pelos arquivos locais. A frequência diária é compatível com Hobby; nesse plano a execução pode ocorrer ao longo da hora agendada, sem minuto exato. Consulte [limites oficiais](https://vercel.com/docs/cron-jobs/usage-and-pricing) e [proteção e operação do cron](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
+
+O job pagina 100 candidatos por vez, confere estado/proprietário novamente, reserva cada dispositivo antes do envio e usa até cinco envios paralelos, timeout de 5 segundos e TTL de uma hora. Retornos 404/410 desativam a inscrição, preservando os outros dispositivos. Sem despesas ou inscrições retorna contadores zerados. `sentAt` significa aceite pelo push service, não confirmação de leitura/entrega.
+
+**Sem duplicação:** execução repetida ou concorrente encontra a reserva única e ignora aquela tentativa. MySQL e push service não oferecem transação distribuída: uma queda após reservar ou após o provedor aceitar pode deixar `CLAIMED` sem `sentAt`. Para preservar a ausência de duplicidade, esse MVP não reenvia automaticamente `CLAIMED` ou `FAILED`, inclusive timeouts e falhas transitórias. Não apague reservas para forçar reenvio sem investigar, pois pode duplicar um aviso já entregue. Dispositivos adicionais mantêm registros independentes.
+
+A função tem limite configurado de 60 segundos, com orçamento de trabalho de 45 segundos. Se esgotado, retorna 503 com `data.incomplete=true`; a execução manual seguinte ignora reservas já existentes e pode continuar os candidatos restantes. Vercel Cron não faz retry automático. Monitore `push.job_completed`, `push.delivery_failures`, contadores `failed`/`expired` e respostas 503. Para volumes altos, recomenda-se fila com processamento em lotes e política explícita para falhas incertas.
+
+### Disparar e testar manualmente
+
+No ambiente de testes com servidor em execução e `.env` configurado, execute do diretório do projeto; o comando lê o secret sem imprimi-lo:
+
+```powershell
+node --env-file=.env -e "fetch('http://localhost:3000/api/cron/due-notifications',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>console.log(r.status,await r.json()))"
+```
+
+Para ambiente HTTPS, substitua a URL pelo domínio correspondente e utilize o secret daquele ambiente. O job não aceita data artificial: calcule amanhã em São Paulo. Não execute contra produção para experimentar.
+
+Chrome Desktop (repita também no Edge):
+
+1. Faça login com usuário de teste. Abra Configurações e confirme que nenhum popup aparece automaticamente.
+2. Clique em Ativar notificações e permita. Verifique estado ativado, `sw.js` em DevTools → Application → Service Workers e uma inscrição ativa no banco.
+3. Cadastre uma despesa pendente para amanhã, outra paga para amanhã e outra pendente para depois de amanhã. Dispare o job: apenas a primeira deve notificar com descrição, BRL e data.
+4. Dispare duas vezes e simultaneamente; não deve surgir segundo aviso por dispositivo para o mesmo lançamento/data. Confira um histórico e uma entrega por dispositivo.
+5. Clique na notificação: abre ou foca Despesas na competência correta. Faça o mesmo com competência diferente do mês atual.
+6. Ative outro navegador/dispositivo na mesma conta; ambos recebem seus próprios avisos para uma nova despesa. Desativar um não desativa o outro.
+7. Em perfil novo, negue a permissão: estado bloqueado, aplicativo financeiro utilizável. Reverta a permissão nas configurações do navegador para tentar novamente.
+8. Saia da conta e entre em outra: inscrições não podem ser transferidas nem consultadas por outro usuário. Verifique rotas sem sessão (401), origem externa (403) e cron sem token (401).
+9. Teste usuário sem inscrição, zero despesas, indisponibilidade do provedor e inscrição expirada (404/410 via sender simulado nos testes). Falhas devem preservar o restante da execução.
+
+Android/PWA:
+
+1. Abra o domínio **HTTPS** no Chrome Android, instale pelo menu do navegador e abra a PWA.
+2. Faça login, ative em Configurações e permita também nas permissões do Android, se solicitado.
+3. Cadastre uma nova despesa pendente para amanhã, coloque a PWA em segundo plano e dispare o job.
+4. Confira título, valor e vencimento; toque no aviso e confira a tela Despesas. Repita o job e confirme ausência de duplicidade.
+5. Desative, negue permissão e teste logout/troca de conta. O restante do aplicativo deve continuar utilizável. Valide em aparelho físico e com as políticas reais de bateria/rede.
+
+### Testes automatizados e limitações
+
+```powershell
+npm.cmd run docs:inventory
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+# Somente com banco MySQL de testes e migrations aplicadas:
+node --env-file=.env --import tsx --test tests/integration/push.mysql.ts
+# Com servidor de testes iniciado e TEST_BASE_URL correspondente:
+node --env-file=.env --import tsx --test tests/integration/push.http.ts
+```
+
+`tests/push.test.ts` cobre calendário brasileiro, autenticação do cron, validação/SSRF, múltiplos dispositivos, concorrência, repetição, falhas de envio, 404/410, ausência de inscrição, permissão negada e eventos do service worker. `tests/integration/push.mysql.ts` usa fixtures isoladas, sender simulado, consultas e restrições reais do MySQL para conferir despesas pendentes/pagas/outros dias, isolamento e unicidade concorrente. Não envia pushes reais.
+
+`tests/integration/push.http.ts` verifica as rotas com login Auth.js real: 401 anônimo, 403 origem externa, 400 payload inválido/SSRF, 409 tentativa de tomar inscrição alheia, consulta/desativação por proprietário, cron protegido e headers do service worker.
+
+Entrega depende de navegador, conectividade, permissão do sistema, bateria e push service; não substitui a consulta de vencimentos no aplicativo. Sessão expirada recebe somente conteúdo genérico. Avisos podem refletir dados que mudaram após envio; o job revalida antes do envio, mas não cancela mensagens já aceitas pelo provedor. Inscrições expiradas exigem reativação manual; não há renovação em segundo plano. Despesas criadas após o cron diário podem não ser avisadas a tempo. Não há catch-up para dias perdidos nem configurações de 0/3/5 dias nesta versão. O campo `type` e a data de referência permitem evolução futura.
+
+### Arquivos desta implementação
+
+Criados:
+
+```text
+prisma/migrations/20261004120000_web_push/migration.sql
+public/sw.js
+vercel.json
+src/app/api/push/subscriptions/route.ts
+src/app/api/push/subscriptions/status/route.ts
+src/app/api/cron/due-notifications/route.ts
+src/components/notifications/notification-settings.tsx
+src/lib/push/browser.ts
+src/lib/push/cron-auth.ts
+src/lib/push/due-date.ts
+src/lib/push/sender.ts
+src/lib/validations/push.ts
+src/services/push-subscriptions.ts
+src/services/due-notifications.ts
+tests/push.test.ts
+tests/integration/push.mysql.ts
+tests/integration/push.http.ts
+```
+
+Alterados: `prisma/schema.prisma`, `.env.example`, `package.json`, `package-lock.json`, `next.config.ts`, `src/app/(dashboard)/configuracoes/page.tsx`, `src/app/(dashboard)/despesas/page.tsx`, `src/components/layout/logout-button.tsx`, `src/lib/api/openapi.ts`, `scripts/api-inventory.ts` e este README. `docs/fase6/API.md` e `docs/fase6/openapi.json` foram regenerados pelo script existente; a pasta `docs` já é ignorada pelo Git neste projeto.
+
+Validação em 04/10/2026: Prisma generate, typecheck, build e 59 testes unitários aprovados; lint sem erros, com 15 warnings preexistentes em `.tmp/bank-assets/inter-page.js`. Migration aplicada e integração MySQL/HTTP aprovada em MySQL 8 temporário, porta local isolada, sem modificar o banco remoto indicado no `.env`. Não houve deploy, envio push real nem homologação em Android físico; essas etapas exigem VAPID e ambiente HTTPS configurados.
 
 ## Próximas fases e limites conhecidos
 
@@ -213,7 +368,7 @@ Erros públicos preservam status/corpo e agora recebem `private, no-store`. Falh
 
 HTTPS, rate limiting distribuído no proxy/serviço compartilhado, backups com restauração ensaiada e monitoramento são requisitos operacionais antes da exposição pública. Não há limitação em memória apresentada como proteção de produção. Recuperação por e-mail e revogação central de JWT continuam pendentes. Headers nosniff, DENY e Referrer-Policy existentes foram preservados; CSP mais restritiva depende de ensaio em staging com Next/Auth.js/Recharts e Swagger.
 
-PWA preservada: manifest e ícones válidos, standalone, sem service worker, cache financeiro offline ou fila de transações. Instale pelo menu do navegador quando disponível, usando HTTPS em produção ou localhost em desenvolvimento. Conexão continua necessária; não há promessa de funcionamento offline. Conferência em Android físico e instalação desktop ficam no roteiro de homologação; não foram comprovadas nesta fase.
+PWA preservada: manifest e ícones válidos, standalone, agora com service worker exclusivo para notificações, sem cache financeiro offline ou fila de transações. Instale pelo menu do navegador quando disponível, usando HTTPS em produção ou localhost em desenvolvimento. Conexão continua necessária; não há promessa de funcionamento offline. Conferência em Android físico e instalação desktop ficam no roteiro de homologação.
 
 Siga [PRODUCAO.md](docs/fase6/PRODUCAO.md) para variáveis, migrations, deploy, backup/restore e Swagger. O build gera o client Prisma, mas não roda migration/seed. `.env` local foi preservado; `.env.example` contém somente placeholders. Esta pasta não possui Git inicializado: a verificação de histórico/versionamento de segredos depende do repositório de destino.
 

@@ -4,6 +4,7 @@ import { accountSchema, categorySchema, transactionSchema, transactionFilterSche
 import { installmentSchema, recurringSchema, transferSchema, generationSchema, advancedFilters } from "../validations/advanced";
 import { goalSchema, goalStateSchema, participantSchema, contributionSchema, goalFilters, goalPeriod } from "../validations/goals";
 import { planningSchema } from "../validations/planning";
+import { pushEndpointSchema, pushSubscriptionSchema } from "../validations/push";
 
 // Documentation only. Runtime validation and financial services remain the source of truth.
 type Schema = Record<string, unknown>;
@@ -101,6 +102,15 @@ function add(path: string, method: string, tag: string, summary: string, respons
   (paths[path] ??= {})[method] = operation;
 }
 const readErrors = [400, 401, 403, 500];
+schemas.PushSubscriptionRequest = fromZod(pushSubscriptionSchema);
+schemas.PushEndpointRequest = fromZod(pushEndpointSchema);
+add("/api/push/subscriptions", "post", "Notifications", "Ativar Web Push neste dispositivo", object({ active: bool }), { body: "PushSubscriptionRequest", errors: [400, 401, 403, 409, 500], description: "Endpoint HTTPS de provedor permitido; chaves base64url. Proprietário exclusivamente da sessão, nunca transfere inscrição de outra conta." });
+add("/api/push/subscriptions", "delete", "Notifications", "Desativar Web Push neste dispositivo", object({ active: bool }), { body: "PushEndpointRequest", errors: [400, 401, 403, 500], description: "Idempotente e limitada ao usuário autenticado. Não afeta outros dispositivos." });
+add("/api/push/subscriptions/status", "post", "Notifications", "Consultar inscrição do dispositivo", object({ active: bool }), { body: "PushEndpointRequest", errors: [400, 401, 403, 500], description: "Endpoint no corpo, sem expor subscriptions em URLs ou respostas. Retorna somente o estado da própria conta." });
+const jobCounts = object({ selected: integer, sent: integer, skipped: integer, failed: integer, expired: integer, incomplete: bool });
+add("/api/cron/due-notifications", "get", "Notifications", "Verificar despesas vencendo amanhã", jobCounts, { errors: [401, 500], description: "Interna: Bearer CRON_SECRET (mínimo 32 caracteres), inclusive local. Diária 12:00 UTC. Não aceita data ou usuário do cliente. Reserva persistente por dispositivo antes do envio." });
+paths["/api/cron/due-notifications"].get.security = [{ cronBearer: [] }];
+paths["/api/cron/due-notifications"].get.responses["503"] = { description: "Configuração ausente ou orçamento de execução esgotado (incomplete=true); repetir com o mesmo secret.", content: json({ oneOf: [ref("Error"), envelope(jobCounts)] }) };
 const listDescriptions: Record<string, string> = {
   Account: "Contas do Household, inclusive inativas, com saldo. Sem filtros: mês atual no Brasil; somente year: dezembro; month exige year. Lista sem paginação.",
   Category: "Categorias do Household, inclusive inativas. Filtro opcional type. Lista sem paginação.",
@@ -178,6 +188,7 @@ export const openapi = {
   tags: [...new Set(Object.values(paths).flatMap(verbs => Object.values(verbs).flatMap(op => op.tags)))].map(name => ({ name })),
   paths,
   components: { schemas, securitySchemes: {
+    cronBearer: { type: "http", scheme: "bearer", description: "Secret exclusivo do agendador; não usar token de sessão." },
     sessionCookie: { type: "apiKey", in: "cookie", name: "authjs.session-token", description: "Desenvolvimento HTTP. Emitido no login; nunca colar tokens na documentação." },
     secureSessionCookie: { type: "apiKey", in: "cookie", name: "__Secure-authjs.session-token", description: "HTTPS. Cookie HttpOnly gerenciado pelo Auth.js." },
   } },

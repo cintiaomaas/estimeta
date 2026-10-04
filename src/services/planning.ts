@@ -6,9 +6,33 @@ import { money, monthDate } from "../lib/finance/report-math";
 import { AppError } from "../lib/api/errors";
 
 export async function planningConfig(tx: Prisma.TransactionClient, householdId: string): Promise<PlanningInput> {
-  const row = await tx.incomePlanning.findUnique({ where: { householdId }, include: { groups: { orderBy: { position: "asc" }, include: { categories: true } } } });
-  if (!row) return { enabled: false, incomeSource: "REALIZED", referenceIncome: "0.00", revision: 0, groups: [] };
-  return { enabled: row.enabled, incomeSource: row.incomeSource, referenceIncome: money(row.referenceIncome), revision: row.revision, groups: row.groups.map((g) => ({ name: g.name, percentage: money(g.percentage), alertPercentage: money(g.alertPercentage), active: g.active, categoryIds: g.categories.map((c) => c.categoryId) })) };
+  type Row = {
+    enabled: boolean | number; incomeSource: PlanningInput["incomeSource"]; referenceIncome: Prisma.Decimal; revision: number;
+    groupId: string | null; name: string | null; percentage: Prisma.Decimal | null;
+    alertPercentage: Prisma.Decimal | null; active: boolean | number | null; categoryId: string | null;
+  };
+  const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
+    SELECT p.enabled, p.incomeSource, p.referenceIncome, p.revision,
+      g.id AS groupId, g.name, g.percentage, g.alertPercentage, g.active, l.categoryId
+    FROM IncomePlanning p
+    LEFT JOIN PlanningGroup g ON g.householdId = p.householdId
+    LEFT JOIN PlanningGroupCategory l ON l.planningGroupId = g.id AND l.householdId = g.householdId
+    WHERE p.householdId = ${householdId}
+    ORDER BY g.position ASC, l.categoryId ASC
+  `);
+  if (!rows.length) return { enabled: false, incomeSource: "REALIZED", referenceIncome: "0.00", revision: 0, groups: [] };
+  const groups = new Map<string, PlanningInput["groups"][number]>();
+  for (const row of rows) {
+    if (row.groupId === null) continue;
+    let group = groups.get(row.groupId);
+    if (!group) {
+      group = { name: row.name!, percentage: money(row.percentage!), alertPercentage: money(row.alertPercentage!), active: Boolean(row.active), categoryIds: [] };
+      groups.set(row.groupId, group);
+    }
+    if (row.categoryId !== null) group.categoryIds.push(row.categoryId);
+  }
+  const row = rows[0];
+  return { enabled: Boolean(row.enabled), incomeSource: row.incomeSource, referenceIncome: money(row.referenceIncome), revision: row.revision, groups: [...groups.values()] };
 }
 export async function planningReport(tx: Prisma.TransactionClient, householdId: string, year: number, month: number, realizedIncome: string) {
   const config = await planningConfig(tx, householdId);
