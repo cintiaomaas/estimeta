@@ -98,29 +98,46 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
       const filters = transactionFilterSchema.parse(input);
       const { page, limit, sort, order } = filters;
       const today = databaseDate(todayInBrazil());
-      const where: Prisma.TransactionWhereInput = {
-        householdId, type: filters.type, accountId: filters.accountId, categoryId: filters.categoryId,
-        description: filters.search ? { contains: filters.search } : undefined,
-      };
+      // Use the same parameterized predicate for the count and the joined page.
+      const conditions = [Prisma.sql`t.householdId = ${householdId}`];
+      if (filters.type) conditions.push(Prisma.sql`t.type = ${filters.type}`);
+      if (filters.accountId) conditions.push(Prisma.sql`t.accountId = ${filters.accountId}`);
+      if (filters.categoryId) conditions.push(Prisma.sql`t.categoryId = ${filters.categoryId}`);
+      if (filters.search !== undefined) conditions.push(Prisma.sql`t.description LIKE ${'%' + filters.search + '%'}`);
       if (filters.status === "OVERDUE") {
-        where.AND = [{ type: "EXPENSE", status: "PENDING", scheduledDate: { lt: today } }];
+        conditions.push(Prisma.sql`t.type = 'EXPENSE' AND t.status = 'PENDING' AND t.scheduledDate < ${today}`);
       } else if (filters.status === "PENDING") {
-        where.status = "PENDING";
-        where.OR = [{ type: "INCOME" }, { scheduledDate: { gte: today } }];
-      } else if (filters.status) where.status = filters.status;
+        conditions.push(Prisma.sql`t.status = 'PENDING' AND (t.type = 'INCOME' OR t.scheduledDate >= ${today})`);
+      } else if (filters.status) conditions.push(Prisma.sql`t.status = ${filters.status}`);
       if (filters.year) {
         const year = String(filters.year).padStart(4, "0");
         const month = filters.month ? String(filters.month).padStart(2, "0") : "01";
         const lastMonth = filters.month ? month : "12";
-        where.competenceDate = { gte: databaseDate(`${year}-${month}-01`), lte: databaseDate(`${year}-${lastMonth}-01`) };
+        conditions.push(Prisma.sql`t.competenceDate >= ${databaseDate(`${year}-${month}-01`)} AND t.competenceDate <= ${databaseDate(`${year}-${lastMonth}-01`)}`);
       }
-      // Date range refers to scheduled dates; monthly filters always use competence.
-      if (filters.startDate || filters.endDate) where.scheduledDate = { ...(filters.startDate ? { gte: databaseDate(filters.startDate) } : {}), ...(filters.endDate ? { lte: databaseDate(filters.endDate) } : {}) };
-      const field = sort === "date" ? "scheduledDate" : sort;
+      if (filters.startDate) conditions.push(Prisma.sql`t.scheduledDate >= ${databaseDate(filters.startDate)}`);
+      if (filters.endDate) conditions.push(Prisma.sql`t.scheduledDate <= ${databaseDate(filters.endDate)}`);
+      const where = Prisma.join(conditions, " AND ");
+      const field = sort === "date" ? Prisma.sql`t.scheduledDate` : sort === "amount" ? Prisma.sql`t.amount` : Prisma.sql`t.description`;
+      const direction = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
       return atomic(async (tx) => {
-        const total = await tx.transaction.count({ where });
-        const rows = await tx.transaction.findMany({ where, include, orderBy: [{ [field]: order }, { id: "desc" }], skip: (page - 1) * limit, take: limit });
-        return { data: rows.map(serializeTransaction), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+        const counts = await tx.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT COUNT(*) AS total FROM Transaction t WHERE ${where}`);
+        const total = Number(counts[0].total);
+        type Row = Prisma.TransactionGetPayload<Record<string, never>> & {
+          accountName: string; accountActive: boolean | number; categoryName: string; categoryActive: boolean | number;
+        };
+        const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
+          SELECT t.*, a.name AS accountName, a.isActive AS accountActive, c.name AS categoryName, c.isActive AS categoryActive
+          FROM Transaction t
+          INNER JOIN Account a ON a.id = t.accountId AND a.householdId = t.householdId
+          INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
+          WHERE ${where} ORDER BY ${field} ${direction}, t.id DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}
+        `);
+        const data = rows.map(({ accountName, accountActive, categoryName, categoryActive, ...row }) => serializeTransaction({ ...row,
+          account: { id: row.accountId, name: accountName, isActive: Boolean(accountActive) },
+          category: { id: row.categoryId, name: categoryName, isActive: Boolean(categoryActive) },
+        }));
+        return { data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
       });
     },
     async transaction(id: string) {

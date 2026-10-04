@@ -13,6 +13,8 @@ enum HouseholdRole {
 }
 
 model User {
+  pushSubscriptions PushSubscription[]
+  notificationLogs NotificationLog[]
   goalsCreated FinancialGoal[]
   contributionsCreated GoalContribution[]
   id                    String                 @id @default(uuid()) @db.Char(36)
@@ -153,6 +155,7 @@ model PlanningGroupCategory {
 }
 
 model Transaction {
+  notificationLogs      NotificationLog[]
   id                    String               @id @default(uuid()) @db.Char(36)
   householdId           String               @db.Char(36)
   accountId             String               @db.Char(36)
@@ -189,6 +192,52 @@ model Transaction {
   @@index([accountId, householdId])
   @@index([categoryId, householdId])
   @@index([createdBy])
+  @@index([type, status, scheduledDate, id])
+}
+
+model PushSubscription {
+  id           String   @id @default(uuid()) @db.Char(36)
+  userId       String   @db.Char(36)
+  endpoint     String   @db.Text
+  endpointHash String   @unique @db.Char(64)
+  p256dh       String   @db.VarChar(100)
+  auth         String   @db.VarChar(30)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active])
+}
+
+model NotificationLog {
+  id            String   @id @default(uuid()) @db.Char(36)
+  userId        String   @db.Char(36)
+  transactionId String   @db.Char(36)
+  type          String   @db.VarChar(40)
+  referenceDate DateTime @db.Date
+  createdAt     DateTime @default(now())
+  sentAt        DateTime?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  deliveries    NotificationDelivery[]
+
+  @@unique([userId, transactionId, type, referenceDate], map: "NotificationLog_identity_key")
+  @@index([transactionId])
+}
+
+// A durable claim precedes each external send. Never automatically reclaim an
+// uncertain attempt: the push provider cannot participate in a DB transaction.
+model NotificationDelivery {
+  id           String   @id @default(uuid()) @db.Char(36)
+  logId        String   @db.Char(36)
+  endpointHash String   @db.Char(64)
+  status       String   @default("CLAIMED") @db.VarChar(20)
+  createdAt    DateTime @default(now())
+  sentAt       DateTime?
+  log          NotificationLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+
+  @@unique([logId, endpointHash])
 }
 
 model HouseholdMember {

@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Account } from "@prisma/client";
 import { decimal, money, monthDate } from "../lib/finance/report-math";
 
 /** Read the history once, retaining the same snapshot and account inclusion rules. */
@@ -26,15 +26,36 @@ export async function annualBalances(tx: Prisma.TransactionClient, householdId: 
 
 /** One competence cutoff for accounts, dashboard and annual report. */
 export async function accountBalances(tx: Prisma.TransactionClient, householdId: string, before: Date) {
-  const rows = await tx.account.findMany({ where: { householdId }, orderBy: [{ isActive: "desc" }, { name: "asc" }] });
-  const values = new Map(rows.map((row) => [row.id, decimal(row.initialBalance)]));
-  const transactions = await tx.transaction.groupBy({ by: ["accountId", "type"], where: { householdId, competenceDate: { lt: before }, OR: [{ type: "INCOME", status: "RECEIVED" }, { type: "EXPENSE", status: "PAID" }] }, _sum: { amount: true } });
-  for (const row of transactions) values.set(row.accountId, values.get(row.accountId)!.plus(decimal(row._sum.amount ?? 0).mul(row.type === "INCOME" ? 1 : -1)));
-  for (const field of ["sourceAccountId", "destinationAccountId"] as const) {
-    const transfers = await tx.transfer.groupBy({ by: [field], where: { householdId, competenceDate: { lt: before } }, _sum: { amount: true } });
-    for (const row of transfers) values.set(row[field], values.get(row[field])!.plus(decimal(row._sum.amount ?? 0).mul(field === "sourceAccountId" ? -1 : 1)));
-  }
-  return rows.map((row) => ({ ...row, initialBalance: money(row.initialBalance), balance: money(values.get(row.id)!) }));
+  // Aggregate each source before joining: no multiplication of transactions by transfers.
+  // All three branches and the account lookup are scoped to the same Household/cutoff.
+  type BalanceRow = Omit<Account, "isActive" | "includeInTotalBalance"> & {
+    isActive: boolean | number; includeInTotalBalance: boolean | number; movement: Prisma.Decimal;
+  };
+  const rows = await tx.$queryRaw<BalanceRow[]>(Prisma.sql`
+    SELECT a.*, COALESCE(m.movement, 0) AS movement
+    FROM Account a
+    LEFT JOIN (
+      SELECT accountId, SUM(amount) AS movement FROM (
+        SELECT accountId, SUM(CASE WHEN type = 'INCOME' THEN amount ELSE -amount END) AS amount
+        FROM Transaction
+        WHERE householdId = ${householdId} AND competenceDate < ${before}
+          AND ((type = 'INCOME' AND status = 'RECEIVED') OR (type = 'EXPENSE' AND status = 'PAID'))
+        GROUP BY accountId
+        UNION ALL
+        SELECT sourceAccountId AS accountId, -SUM(amount) AS amount FROM Transfer
+        WHERE householdId = ${householdId} AND competenceDate < ${before} GROUP BY sourceAccountId
+        UNION ALL
+        SELECT destinationAccountId AS accountId, SUM(amount) AS amount FROM Transfer
+        WHERE householdId = ${householdId} AND competenceDate < ${before} GROUP BY destinationAccountId
+      ) movements GROUP BY accountId
+    ) m ON m.accountId = a.id
+    WHERE a.householdId = ${householdId}
+    ORDER BY a.isActive DESC, a.name ASC
+  `);
+  return rows.map(({ movement, ...row }) => ({ ...row,
+    isActive: Boolean(row.isActive), includeInTotalBalance: Boolean(row.includeInTotalBalance),
+    initialBalance: money(row.initialBalance), balance: money(decimal(row.initialBalance).plus(movement)),
+  }));
 }
 export async function consolidatedBalance(tx: Prisma.TransactionClient, householdId: string, before: Date) {
   const rows = await accountBalances(tx, householdId, before);

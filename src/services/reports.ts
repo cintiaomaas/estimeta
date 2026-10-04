@@ -1,5 +1,5 @@
 import { annualBalances, consolidatedBalance } from "./balances";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient, type Transaction } from "@prisma/client";
 import type { FinancialActor } from "./finance";
 import { dateOnly, displayStatus, todayInBrazil } from "../lib/finance/dates";
 import { averageMonths, comparison, decimal, money, monthDate, net, percentage } from "../lib/finance/report-math";
@@ -8,9 +8,25 @@ import { goalsSummary } from "./goals";
 import { planningReport } from "./planning";
 
 const realized: Prisma.TransactionWhereInput = { OR: [{ type: "INCOME", status: "RECEIVED" }, { type: "EXPENSE", status: "PAID" }] };
-const detail = { id: true, type: true, description: true, amount: true, status: true, scheduledDate: true, competenceDate: true, transactionDate: true, account: { select: { name: true } }, category: { select: { name: true } } } satisfies Prisma.TransactionSelect;
-type Detail = Prisma.TransactionGetPayload<{ select: typeof detail }>;
+type Detail = Pick<Transaction, "id" | "type" | "description" | "amount" | "status" | "scheduledDate" | "competenceDate" | "transactionDate"> & { account: { name: string }; category: { name: string } };
 const serialize = (row: Detail, today: string) => ({ ...row, amount: money(row.amount), scheduledDate: dateOnly(row.scheduledDate), competenceDate: dateOnly(row.competenceDate), transactionDate: row.transactionDate ? dateOnly(row.transactionDate) : null, displayStatus: displayStatus({ ...row, scheduledDate: dateOnly(row.scheduledDate) }, today) });
+
+// Fetch the bounded report rows and their labels in one trip, within the caller's snapshot.
+async function reportDetails(tx: Prisma.TransactionClient, householdId: string, start: Date, end: Date, top: boolean): Promise<Detail[]> {
+  type Row = Omit<Detail, "account" | "category"> & { accountName: string; categoryName: string };
+  const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
+    SELECT t.id, t.type, t.description, t.amount, t.status, t.scheduledDate,
+      t.competenceDate, t.transactionDate, a.name AS accountName, c.name AS categoryName
+    FROM Transaction t
+    INNER JOIN Account a ON a.id = t.accountId AND a.householdId = t.householdId
+    INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
+    WHERE t.householdId = ${householdId} AND t.competenceDate >= ${start} AND t.competenceDate < ${end}
+      ${top ? Prisma.sql`AND t.type = 'EXPENSE' AND t.status = 'PAID'` : Prisma.empty}
+    ORDER BY ${top ? Prisma.sql`t.amount DESC, t.id ASC` : Prisma.sql`t.createdAt DESC, t.id DESC`}
+    LIMIT 5
+  `);
+  return rows.map(({ accountName, categoryName, ...row }) => ({ ...row, account: { name: accountName }, category: { name: categoryName } }));
+}
 
 /** Only server entry points may construct this service, using authenticated membership. */
 export function reportService(db: PrismaClient, actor: FinancialActor, now = new Date()) {
@@ -52,11 +68,17 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
           else if (displayStatus({ type: row.type, status: "PENDING", scheduledDate: dateOnly(row.scheduledDate) }, today) === "OVERDUE") overdueExpenses = overdueExpenses.plus(amount);
           else pendingExpenses = pendingExpenses.plus(amount);
         }
-        const grouped = await tx.transaction.groupBy({ by: ["categoryId"], where: { householdId, ...period, type: "EXPENSE", status: "PAID" }, _sum: { amount: true }, orderBy: { _sum: { amount: "desc" } } });
-        const categories = await tx.category.findMany({ where: { householdId, id: { in: grouped.map((r) => r.categoryId) } }, select: { id: true, name: true } });
-        const expensesByCategory = grouped.map((row) => ({ id: row.categoryId, name: categories.find((c) => c.id === row.categoryId)!.name, amount: money(row._sum.amount ?? 0), percentage: percentage(row._sum.amount ?? 0, current.expenses) }));
-        const top = await tx.transaction.findMany({ where: { householdId, ...period, type: "EXPENSE", status: "PAID" }, select: detail, orderBy: [{ amount: "desc" }, { id: "asc" }], take: 5 });
-        const recent = await tx.transaction.findMany({ where: { householdId, ...period }, select: detail, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 5 });
+        const grouped = await tx.$queryRaw<{ categoryId: string; name: string; amount: Prisma.Decimal }[]>(Prisma.sql`
+          SELECT t.categoryId, c.name, SUM(t.amount) AS amount
+          FROM Transaction t
+          INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
+          WHERE t.householdId = ${householdId} AND t.competenceDate >= ${monthDate(year, month)}
+            AND t.competenceDate < ${monthDate(year, month + 1)} AND t.type = 'EXPENSE' AND t.status = 'PAID'
+          GROUP BY t.categoryId, c.name ORDER BY SUM(t.amount) DESC
+        `);
+        const expensesByCategory = grouped.map((row) => ({ id: row.categoryId, name: row.name, amount: money(row.amount), percentage: percentage(row.amount, current.expenses) }));
+        const top = await reportDetails(tx, householdId, monthDate(year, month), monthDate(year, month + 1), true);
+        const recent = await reportDetails(tx, householdId, monthDate(year, month), monthDate(year, month + 1), false);
         return { goals, planning, period: { year, month }, asOf: today, balance: accountBalance.value, balanceKind: "period" as const, accountCount: accountBalance.accountCount, ...current, pendingIncome: money(pendingIncome), pendingExpenses: money(pendingExpenses), overdueExpenses: money(overdueExpenses), comparison: { income: comparison(current.income, previous.income), expenses: comparison(current.expenses, previous.expenses), netSavings: comparison(current.netSavings, previous.netSavings) }, expensesByCategory, topExpenses: top.map((r) => serialize(r, today)), recentTransactions: recent.map((r) => serialize(r, today)), trend, availableYears: await years(tx) };
       });
     },

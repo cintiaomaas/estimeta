@@ -42,6 +42,23 @@ test("annual balances match monthly snapshots, including transfers and excluded 
     return rows.filter((row) => matches(row, where)).map((row) => ({ ...row, _sum: { amount: row.amount } }));
   };
   const tx = {
+    // The monthly reader now receives a joined SQL projection. Keep the original
+    // fixture oracle; real SQL equivalence is covered by the MySQL read regression.
+    $queryRaw: async (query: Prisma.Sql) => {
+      const householdId = query.values[0], before = query.values[1] as Date;
+      return accounts.filter(a => a.householdId === householdId).map(a => {
+        let movement = new Prisma.Decimal(0);
+        for (const t of transactions.filter(t => t.householdId === householdId && t.accountId === a.id && t.competenceDate < before)) {
+          if (t.type === "INCOME" && t.status === "RECEIVED") movement = movement.plus(t.amount);
+          if (t.type === "EXPENSE" && t.status === "PAID") movement = movement.minus(t.amount);
+        }
+        for (const t of transfers.filter(t => t.householdId === householdId && t.competenceDate < before)) {
+          if (t.sourceAccountId === a.id) movement = movement.minus(t.amount);
+          if (t.destinationAccountId === a.id) movement = movement.plus(t.amount);
+        }
+        return { ...a, movement };
+      });
+    },
     account: { findMany: async ({ where }: { where: Row }) => { queries++; return accounts.filter((row) => matches(row, where)); } },
     transaction: { groupBy: groupBy(transactions) }, transfer: { groupBy: groupBy(transfers) },
   } as unknown as Prisma.TransactionClient;
