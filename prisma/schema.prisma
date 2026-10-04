@@ -72,6 +72,7 @@ model Account {
   id                    String                 @id @default(uuid()) @db.Char(36)
   householdId           String                 @db.Char(36)
   name                  String                 @db.VarChar(100)
+  bankCode              String?                @db.VarChar(40)
   type                  AccountType
   initialBalance        Decimal                @default(0) @db.Decimal(15, 2)
   includeInTotalBalance Boolean                @default(true)

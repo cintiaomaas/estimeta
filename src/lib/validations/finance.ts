@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bankCodes } from "../finance/banks";
 
 const name = z.string().trim().min(1, "Informe o nome.").max(100, "O nome deve ter até 100 caracteres.").transform((value) => value.replace(/\s+/g, " "));
 export const transactionType = z.enum(["INCOME", "EXPENSE"]);
@@ -8,7 +9,7 @@ export const financialDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe um
   const date = new Date(`${value}T00:00:00.000Z`);
   return value >= "1000-01-01" && value <= "9999-12-31" && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }, "Informe uma data válida.");
-export const accountSchema = z.object({ name, type: z.enum(["CHECKING", "SAVINGS", "CASH", "INVESTMENT", "OTHER"]), initialBalance: money, includeInTotalBalance: z.boolean().default(true), isActive: z.boolean().default(true) }).strict();
+export const accountSchema = z.object({ name, bankCode: z.enum(bankCodes, { error: "Selecione uma instituição válida." }).nullable().optional(), type: z.enum(["CHECKING", "SAVINGS", "CASH", "INVESTMENT", "OTHER"]), initialBalance: money, includeInTotalBalance: z.boolean().default(true), isActive: z.boolean().default(true) }).strict();
 export const categorySchema = z.object({ name, type: transactionType, isActive: z.boolean().default(true) }).strict();
 export const transactionSchema = z.object({
   accountId: z.uuid("Selecione uma conta válida."), categoryId: z.uuid("Selecione uma categoria válida."),
