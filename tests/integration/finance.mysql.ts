@@ -44,6 +44,23 @@ test("núcleo financeiro integrado ao MySQL: persistência, integridade e isolam
       await rejectsCode(b.account(accountA.id), "NOT_FOUND");
       await rejectsCode(b.category(categoryA.id), "NOT_FOUND");
     });
+    await suite.test("instituição persiste, pode mudar e clientes antigos preservam a associação", async () => {
+      const input = { name: "Conta banco", type: "CHECKING", initialBalance: "25.50" };
+      const created = await a.saveAccount({ ...input, bankCode: "nubank" });
+      const fresh = new PrismaClient();
+      try {
+        assert.equal((await fresh.account.findUniqueOrThrow({ where: { id: created.id } })).bankCode, "nubank");
+        await a.saveAccount({ ...input, bankCode: "viacredi" }, created.id);
+        assert.equal((await a.account(created.id)).bankCode, "viacredi");
+        await a.saveAccount(input, created.id);
+        assert.equal((await a.account(created.id)).bankCode, "viacredi");
+        assert.equal((await a.accounts()).find((row) => row.id === created.id)?.bankCode, "viacredi");
+        await a.saveAccount({ ...input, bankCode: null }, created.id);
+        assert.equal((await a.account(created.id)).bankCode, null);
+        assert.equal((await b.account(accountB.id)).bankCode, null);
+        assert.equal((await a.account(created.id)).initialBalance, "25.50");
+      } finally { await fresh.$disconnect(); await a.removeAccount(created.id); }
+    });
     await suite.test("unicidade de categoria ignora caixa e acentos, mas permite outro tipo e Household", async () => {
       await rejectsCode(a.saveCategory({ name: "CATEGORIA TESTE A", type: "EXPENSE" }), "DUPLICATE_CATEGORY");
       await a.saveCategory({ name: "Categoria teste A", type: "INCOME" });

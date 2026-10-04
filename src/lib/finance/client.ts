@@ -1,4 +1,4 @@
-export type AccountRecord = { id: string; name: string; type: string; initialBalance: string; isActive: boolean; includeInTotalBalance: boolean; balance?: string; balancePeriod?: string };
+export type AccountRecord = { bankCode?: string | null; id: string; name: string; type: string; initialBalance: string; isActive: boolean; includeInTotalBalance: boolean; balance?: string; balancePeriod?: string };
 export type CategoryRecord = { id: string; name: string; type: "INCOME" | "EXPENSE"; isActive: boolean };
 export type TransactionRecord = {
   installmentPlanId?: string | null; installmentNumber?: number | null; installmentCount?: number | null; recurringOccurrenceId?: string | null;

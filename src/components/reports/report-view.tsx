@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import type { AnnualReport, DashboardReport } from "@/services/reports";
 import { currency, financialRequest, statusLabels } from "@/lib/finance/client";
 import { displayDate, todayInBrazil } from "@/lib/finance/dates";
-import { ReportCharts, monthNames } from "./report-charts";
+import { ReportCharts } from "./report-charts";
+import { monthNames } from "./report-months";
 function Metric({ label, value, change }: { label: string; value: string; change?: string | null }) {
   return <article className="summary-card"><div>{label}</div><strong>{currency(value)}</strong>{change !== undefined && <small>{change === null ? "Sem comparação disponível" : `${change.startsWith("-") ? "" : "+"}${change.replace(".", ",")}% em relação ao mês anterior`}</small>}</article>;
 }

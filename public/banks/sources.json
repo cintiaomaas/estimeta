@@ -1,0 +1,80 @@
+[
+  {
+    "code": "nubank",
+    "file": "nubank.png",
+    "sourcePage": "https://nu.com/pt/sala-de-imprensa/kit-de-imprensa",
+    "downloadUrl": "https://drive.google.com/uc?export=download&id=1NRaZtqqqMwOBhCpK8YpGVdjwWuy7Xjih",
+    "originalFile": "01_nulogo_the-purple.png",
+    "retrievedAt": "2026-10-03",
+    "sha256": "f74266d1c2f9ecd63dfb0aba3456f9e4af4488ed29b2f1edc4d1a7604e23e15e",
+    "note": "Arquivo original, sem redesenho ou alteração de cores. Consulte as diretrizes na página de origem."
+  },
+  {
+    "code": "bradesco",
+    "file": "bradesco.png",
+    "sourcePage": "https://banco.bradesco/marca/",
+    "downloadUrl": "https://assets.bradesco/content/dam/banco-bradesco/marca/static-files/downloads/LOGO-HORIZONTAL.zip",
+    "originalFile": "LOGO-HORIZONTAL/DIGITAL/PNG/BRADESCO_H-RGB_VERMELHO.png",
+    "retrievedAt": "2026-10-03",
+    "sha256": "ecb481fc97d73b22a37c4b982d642a5da4b1756da94f53fef61d5ab61ec99f86",
+    "note": "Arquivo original, sem redesenho ou alteração de cores. Consulte as diretrizes na página de origem."
+  },
+  {
+    "code": "c6-bank",
+    "file": "c6-bank.svg",
+    "sourcePage": "https://www.c6bank.com.br/carbon-brand-space/logotipo/",
+    "downloadUrl": "https://cms-assets-p.c6bank.com.br/uploads/logotipos-c6-bank.zip",
+    "originalFile": "C6Bank_logotipos/_C6 Bank/C6Bank_logo_positivo.svg",
+    "retrievedAt": "2026-10-03",
+    "sha256": "78f7b3f691e481e5382131a76d6c10495abc6a448610058d08c3dcc23b511acc",
+    "note": "Arquivo original, sem redesenho ou alteração de cores. Consulte as diretrizes na página de origem."
+  },
+  {
+    "code": "sicredi",
+    "file": "sicredi.png",
+    "sourcePage": "https://marca.sicredi.com.br/logo/",
+    "downloadUrl": "https://marca.sicredi.com.br/media/brandplace/filer_public/2024/09/20/logos_principais.zip",
+    "originalFile": "01_VERSAO_PREFERENCIAL/RGB/HORIZONTAL_PREFERENCIAL_COLORIDA_RGB.png",
+    "retrievedAt": "2026-10-03",
+    "sha256": "1475f399d483b4754c706a41ce27fc443b4205b5c428b9bbc6ed731bd8e46c1a",
+    "note": "Arquivo original, sem redesenho ou alteração de cores. Consulte as diretrizes na página de origem."
+  },
+  {
+    "code": "inter",
+    "file": "inter.svg",
+    "sourcePage": "https://www.inter.co/o-inter/",
+    "downloadUrl": "https://static.bancointer.com.br/press-kit/press-kit.zip",
+    "originalFile": "Materiais de Marca/Marca Inter/PRINCIPAL/ABERTOS/inter-logo.svg",
+    "retrievedAt": "2026-10-03",
+    "sha256": "1078a5f22d95c2bbe060847b895ca4d38e99a63d2fe62ae6655026c8d30d016c",
+    "note": "Arquivo original, sem redesenho ou alteração de cores. Consulte as diretrizes na página de origem."
+  },
+  {
+    "code": "santander",
+    "file": "santander.jpg",
+    "sourcePage": "https://www.santander.com/en/press-room/media-resources",
+    "downloadUrl": "https://www.santander.com/content/dam/santander-com/es/contenido-paginas/sala-de-comunicaci%C3%B3n/recursos-para-periodistas/logo.jpg",
+    "originalFile": "logo.jpg",
+    "retrievedAt": "2026-10-03",
+    "sha256": "41f8b153f88cf63b6723a032ef9041aa88fd4749145f01e13195a3957f89b7fc",
+    "note": "Download indicado para uso editorial pela fonte."
+  },
+  {
+    "code": "itau",
+    "file": "itau.png",
+    "originalFile": "itau-seeklogo.png",
+    "sourceType": "user-provided",
+    "retrievedAt": "2026-10-03",
+    "sha256": "3f9c3e825b93946378add253ced6b8a99dd33d62ea033e5332d4606e64d9603c",
+    "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
+  },
+  {
+    "code": "viacredi",
+    "file": "viacredi.jpg",
+    "originalFile": "viacredlogo.jpeg",
+    "sourceType": "user-provided",
+    "retrievedAt": "2026-10-03",
+    "sha256": "b988faf6590ec04c72d36a3591ec2fb2d62e0e3a46d77a07e22e511cf7c80b00",
+    "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
+  }
+]
