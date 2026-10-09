@@ -76,5 +76,32 @@
     "retrievedAt": "2026-10-03",
     "sha256": "b988faf6590ec04c72d36a3591ec2fb2d62e0e3a46d77a07e22e511cf7c80b00",
     "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
+  },
+  {
+    "code": "avenue",
+    "file": "Avenue.png",
+    "originalFile": "Avenue.png",
+    "sourceType": "user-provided",
+    "retrievedAt": "2026-10-09",
+    "sha256": "4d7f7f7c3cda3160081b66557f76ecf6ae638db8b197d0b48438b95004c89fba",
+    "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
+  },
+  {
+    "code": "clear-corretora",
+    "file": "clear-corretora.png",
+    "originalFile": "clear-corretora.png",
+    "sourceType": "user-provided",
+    "retrievedAt": "2026-10-09",
+    "sha256": "f6ccbc5f44f5f65b568613d70f565bc3bc8ddc254b72389672e34952d8605329",
+    "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
+  },
+  {
+    "code": "wise",
+    "file": "wise.png",
+    "originalFile": "wise.png",
+    "sourceType": "user-provided",
+    "retrievedAt": "2026-10-09",
+    "sha256": "76963140a8abe4229a90b09e93063799174261c0aacc793ce4a72161eb98c1e1",
+    "note": "Arquivo fornecido pela usuária. Imagem preservada sem conversão, recorte ou alteração de cores; origem oficial não verificada."
   }
 ]

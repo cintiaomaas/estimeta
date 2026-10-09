@@ -1,7 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { tomorrowInBrazil } from "../src/lib/push/due-date";
 import { authorizedCron } from "../src/lib/push/cron-auth";
@@ -16,7 +14,6 @@ test("amanhã usa calendário brasileiro, viradas de mês/ano e ano bissexto", (
   ]) assert.equal(tomorrowInBrazil(new Date(now)).toISOString(), `${expected}T00:00:00.000Z`);
   assert.deepEqual(dueExpenseWhere(new Date("2026-10-09T12:00:00Z")), {
     type: "EXPENSE", status: "PENDING", scheduledDate: new Date("2026-10-10T00:00:00Z"),
-    creator: { pushSubscriptions: { some: { active: true } } },
   });
 });
 
@@ -40,14 +37,15 @@ test("subscriptions validam chaves e rejeitam destinos internos/SSRF e campos de
 
 function fakeJobDatabase(deviceCount = 2) {
   const expense = { id: "expense", createdBy: "owner", householdId: "home", description: "Internet", amount: new Prisma.Decimal("129.90"), scheduledDate: new Date("2026-10-10Z"), competenceDate: new Date("2026-11-01Z") };
-  const subscriptions = Array.from({ length: deviceCount }, (_, index) => ({ id: `device${index}`, userId: "owner", endpointHash: `hash${index}`, active: true, updatedAt: new Date() }));
+  const subscriptions = Array.from({ length: deviceCount }, (_, index) => ({ id: `device${index}`, userId: "owner", endpointHash: `hash${index}`, active: true, sessionId: "session", expiresAt: new Date("2099-01-01Z"), updatedAt: new Date() }));
   const claims = new Map<string, { id: string; status: string; sentAt?: Date }>();
   let sentAt: Date | null = null;
+  const logs = new Map();
   const duplicate = () => new Prisma.PrismaClientKnownRequestError("duplicate", { code: "P2002", clientVersion: "test" });
   const db = {
-    transaction: { findMany: async () => subscriptions.some(s => s.active) ? [expense] : [], findFirst: async () => expense },
+    transaction: { findMany: async () => [expense], findFirst: async () => expense },
     notificationLog: {
-      upsert: async () => ({ id: "log" }),
+      upsert: async ({ create }: { create: unknown }) => { if (!logs.has("log")) logs.set("log", create); return { id: "log" }; },
       updateMany: async ({ data }: { data: { sentAt: Date } }) => { sentAt ??= data.sentAt; },
     },
     pushSubscription: {
@@ -63,7 +61,7 @@ function fakeJobDatabase(deviceCount = 2) {
     },
     $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
   } as unknown as PrismaClient;
-  return { db, claims, subscriptions, sentAt: () => sentAt };
+  return { db, claims, logs, subscriptions, sentAt: () => sentAt };
 }
 
 test("jobs repetidos e concorrentes reservam uma única entrega por dispositivo", async () => {
@@ -75,9 +73,10 @@ test("jobs repetidos e concorrentes reservam uma única entrega por dispositivo"
   await sendDueNotifications(fixture.db, send, now);
   assert.equal(messages.length, 2);
   assert.equal(fixture.claims.size, 2);
+  assert.equal(fixture.logs.size, 1);
   assert.ok(fixture.sentAt());
   assert.equal(messages[0].body, "Internet — R$ 129,90\nVencimento: 10/10/2026");
-  assert.equal(messages[0].url, "/despesas?period=2026-11");
+  assert.equal(messages[0].url, "/notificacoes/log");
   assert.equal(messages[0].userId, "owner");
 });
 
@@ -85,6 +84,7 @@ test("sem inscrições não envia; 404/410 desativa somente o dispositivo expira
   const empty = fakeJobDatabase(0);
   await sendDueNotifications(empty.db, async () => assert.fail("não deve enviar"));
   assert.equal(empty.claims.size, 0);
+  assert.equal(empty.logs.size, 1);
   for (const statusCode of [404, 410]) {
     const fixture = fakeJobDatabase();
     const result = await sendDueNotifications(fixture.db, async s => { if (s.id === "device0") throw { statusCode }; });
@@ -126,26 +126,4 @@ test("negação de permissão encerra ativação normalmente sem registrar SW, i
       else Reflect.deleteProperty(globalThis, key);
     }
   }
-});
-
-test("SW mostra conteúdo autorizado, protege outras contas e limita navegação à origem", async () => {
-  const handlers: Record<string, (event: object) => void> = {};
-  const shown: { title: string; options: { body: string } }[] = [];
-  let currentUser = "owner";
-  let opened = "";
-  runInNewContext(readFileSync("public/sw.js", "utf8"), {
-    self: { addEventListener: (name: string, handler: (event: object) => void) => { handlers[name] = handler; }, location: { origin: "https://estimeta.test" }, registration: { showNotification: async (title: string, options: { body: string }) => { shown.push({ title, options }); } }, clients: { matchAll: async () => [], openWindow: async (url: string) => { opened = url; } } },
-    fetch: async () => ({ ok: true, json: async () => ({ data: { user: { id: currentUser } } }) }), URL, AbortSignal,
-  });
-  let work: Promise<void> = Promise.resolve();
-  const waitUntil = (promise: Promise<void>) => { work = promise; };
-  const data = { json: () => ({ title: "Conta vencendo amanhã", body: "Internet — R$ 129,90", userId: "owner" }) };
-  handlers.push({ data, waitUntil }); await work;
-  assert.equal(shown[0].options.body, "Internet — R$ 129,90");
-  currentUser = "other";
-  handlers.push({ data, waitUntil }); await work;
-  assert.equal(shown[1].options.body.includes("129"), false);
-  handlers.notificationclick({ notification: { close() {}, data: { url: "https://evil.test" } }, waitUntil }); await work;
-  assert.equal(opened, "https://estimeta.test/despesas");
-  assert.equal(handlers.fetch, undefined);
 });

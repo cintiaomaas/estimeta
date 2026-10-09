@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db/prisma";
@@ -21,8 +22,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   })],
   callbacks: {
-    jwt({ token, user }) { if (user) token.sub = user.id; return token; },
-    session({ session, token }) { if (session.user && token.sub) session.user.id = token.sub; return session; },
+    jwt({ token, user }) { if (user) { token.sub = user.id; token.sessionId = randomUUID(); } return token; },
+    session({ session, token }) { if (session.user && token.sub) session.user.id = token.sub; session.sessionId = typeof token.sessionId === "string" ? token.sessionId : undefined;
+      if (typeof token.exp === "number") session.expires = new Date(token.exp * 1000).toISOString() as typeof session.expires;
+      return session; },
   },
+  events: { async signOut(message) { if ("token" in message && typeof message.token?.sessionId === "string") await prisma.pushSubscription.updateMany({ where: { sessionId: message.token.sessionId }, data: { active: false } }); } },
   logger: { error() { console.error("Falha de autenticação. Verifique a configuração do servidor."); } },
 });

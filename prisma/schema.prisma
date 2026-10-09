@@ -203,27 +203,35 @@ model PushSubscription {
   p256dh       String   @db.VarChar(100)
   auth         String   @db.VarChar(30)
   active       Boolean  @default(true)
+  sessionId    String?  @db.Char(36)
+  expiresAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, active])
+  @@index([sessionId])
 }
 
 model NotificationLog {
   id            String   @id @default(uuid()) @db.Char(36)
   userId        String   @db.Char(36)
-  transactionId String   @db.Char(36)
+  transactionId String?  @db.Char(36)
+  description   String?  @db.VarChar(200)
+  amount        Decimal? @db.Decimal(15, 2)
+  competenceDate DateTime? @db.Date
+  readAt        DateTime?
   type          String   @db.VarChar(40)
   referenceDate DateTime @db.Date
   createdAt     DateTime @default(now())
   sentAt        DateTime?
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
   deliveries    NotificationDelivery[]
 
   @@unique([userId, transactionId, type, referenceDate], map: "NotificationLog_identity_key")
   @@index([transactionId])
+  @@index([userId, readAt, createdAt])
 }
 
 // A durable claim precedes each external send. Never automatically reclaim an

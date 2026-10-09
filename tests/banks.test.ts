@@ -7,11 +7,11 @@ import { accountSchema } from "../src/lib/validations/finance";
 
 const account = { name: "Principal", type: "CHECKING", initialBalance: "120.59" };
 test("cadastro aceita todas as instituições e mantém compatibilidade com contas antigas", () => {
-  assert.equal(banks.length, 13);
+  assert.equal(banks.length, 16);
   assert.equal(new Set(banks.map((bank) => bank.code)).size, banks.length);
   for (const bank of banks) {
     assert.equal(accountSchema.parse({ ...account, bankCode: bank.code }).bankCode, bank.code);
-    if (bank.logo) assert.match(bank.logo, /^\/banks\/[a-z0-9-]+\.(svg|png|jpg)$/);
+    if (bank.logo) assert.match(bank.logo, /^\/banks\/[A-Za-z0-9-]+\.(svg|png|jpg)$/);
   }
   assert.equal(accountSchema.parse(account).bankCode, undefined);
   assert.equal(accountSchema.parse({ ...account, bankCode: null }).bankCode, null);
@@ -52,7 +52,7 @@ test("serviço encaminha somente bankCode ao Prisma e preserva omissão na ediç
 
 test("logos obtidos existem, mantêm o formato e correspondem aos originais registrados", () => {
   const sources = JSON.parse(readFileSync("public/banks/sources.json", "utf8")) as Array<{ code: string; file: string; sha256: string }>;
-  assert.equal(sources.length, 8);
+  assert.equal(sources.length, 11);
   for (const source of sources) {
     const bytes = readFileSync("public/banks/" + source.file);
     assert.equal(findBank(source.code)?.logo, "/banks/" + source.file);

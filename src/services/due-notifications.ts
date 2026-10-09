@@ -4,11 +4,11 @@ import { dateOnly, displayDate } from "../lib/finance/dates";
 import { currency } from "../lib/finance/client";
 
 export const DUE_NOTIFICATION = "EXPENSE_DUE_TOMORROW";
-export type PushMessage = { title: string; body: string; url: string; tag: string; userId: string };
+export type PushMessage = { title: string; body: string; url: string; tag: string; userId: string; sessionId: string | null; expiresAt: string | null };
 export type PushSender = (subscription: PushSubscription, message: PushMessage) => Promise<unknown>;
 const duplicate = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 export function dueExpenseWhere(now: Date): Prisma.TransactionWhereInput {
-  return { type: "EXPENSE", status: "PENDING", scheduledDate: tomorrowInBrazil(now), creator: { pushSubscriptions: { some: { active: true } } } };
+  return { type: "EXPENSE", status: "PENDING", scheduledDate: tomorrowInBrazil(now) };
 }
 
 export async function sendDueNotifications(db: PrismaClient, send: PushSender, now = new Date(), budgetMs = 45_000) {
@@ -27,19 +27,19 @@ export async function sendDueNotifications(db: PrismaClient, send: PushSender, n
       cursor = candidate.id;
       // Re-read to exclude payments/deletions and household changes since selection.
       const expense = await db.transaction.findFirst({
-        where: { ...dueExpenseWhere(now), id: candidate.id, creator: { membership: { householdId: candidate.householdId }, pushSubscriptions: { some: { active: true } } } },
+        where: { ...dueExpenseWhere(now), id: candidate.id, creator: { membership: { householdId: candidate.householdId } } },
         select: { id: true, createdBy: true, description: true, amount: true, scheduledDate: true, competenceDate: true },
       });
       if (!expense) continue;
       counts.selected++;
       const identity = { userId: expense.createdBy, transactionId: expense.id, type: DUE_NOTIFICATION, referenceDate: expense.scheduledDate };
       let log;
-      try { log = await db.notificationLog.upsert({ where: { userId_transactionId_type_referenceDate: identity }, create: identity, update: {} }); }
+      try { log = await db.notificationLog.upsert({ where: { userId_transactionId_type_referenceDate: identity }, create: { ...identity, description: expense.description, amount: expense.amount, competenceDate: expense.competenceDate }, update: {} }); }
       catch (error) {
         if (!duplicate(error)) throw error;
         log = await db.notificationLog.findUniqueOrThrow({ where: { userId_transactionId_type_referenceDate: identity } });
       }
-      const subscriptions = await db.pushSubscription.findMany({ where: { userId: expense.createdBy, active: true } });
+      const subscriptions = await db.pushSubscription.findMany({ where: { userId: expense.createdBy, active: true, expiresAt: { gt: now }, sessionId: { not: null } } });
       // Bounded fan-out avoids one slow browser preventing all other devices.
       for (let i = 0; i < subscriptions.length; i += 5) {
         if (Date.now() - started >= budgetMs) { counts.incomplete = true; return counts; }
@@ -54,9 +54,10 @@ export async function sendDueNotifications(db: PrismaClient, send: PushSender, n
           const message: PushMessage = {
             title: "Conta vencendo amanhã",
             body: `${expense.description} — ${currency(expense.amount.toFixed(2))}\nVencimento: ${displayDate(dateOnly(expense.scheduledDate))}`,
-            url: `/despesas?period=${dateOnly(expense.competenceDate).slice(0, 7)}`,
+            url: `/notificacoes/${log.id}`,
             tag: `${DUE_NOTIFICATION}:${expense.id}:${dateOnly(expense.scheduledDate)}`,
             userId: expense.createdBy,
+            sessionId: subscription.sessionId, expiresAt: subscription.expiresAt?.toISOString() ?? null,
           };
           try { await send(subscription, message); }
           catch (error) {

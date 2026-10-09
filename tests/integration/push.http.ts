@@ -36,6 +36,23 @@ test("Web Push HTTP: sessão, origem, propriedade, validação e proteção do c
   try {
     for (let i = 0; i < ids.length; i++) await db.user.create({ data: { id: ids[i], name: "Push HTTP QA", email: `${ids[i]}@example.invalid`, passwordHash, membership: { create: { household: { create: { id: households[i], name: "Push HTTP QA" } } } } } });
     const [a, b] = await Promise.all(ids.map(id => login(`${id}@example.invalid`)));
+    const notices = await Promise.all(ids.map(userId => db.notificationLog.create({ data: { userId, type: "EXPENSE_DUE_TOMORROW", referenceDate: new Date("2040-10-10Z"), description: "Internet", amount: "129.90" } })));
+    assert.equal((await fetch(`${origin}/api/notifications`)).status, 401);
+    const own = await fetch(`${origin}/api/notifications`, { headers: { Cookie: a } });
+    assert.equal(own.headers.get("cache-control"), "private, no-store");
+    const ownData = (await own.json()).data;
+    assert.deepEqual(ownData.items.map((n: { id: string }) => n.id), [notices[0].id]);
+    assert.equal(ownData.unread, 1);
+    assert.equal((await request("/api/notifications", "PATCH", { id: notices[1].id }, a)).status, 404);
+    assert.equal((await request("/api/notifications", "PATCH", { all: true }, a, "https://evil.test")).status, 403);
+    assert.equal((await request("/api/notifications", "PATCH", { id: notices[0].id }, a)).status, 200);
+    assert.equal((await (await fetch(`${origin}/api/notifications`, { headers: { Cookie: a } })).json()).data.unread, 0);
+    assert.equal((await (await fetch(`${origin}/api/notifications`, { headers: { Cookie: b } })).json()).data.unread, 1);
+    assert.equal((await request("/api/notifications", "PATCH", { all: true }, b)).status, 200);
+    const clicked = await fetch(`${origin}/notificacoes/${notices[0].id}`, { redirect: "manual" });
+    assert.equal(new URL(clicked.headers.get("location")!).searchParams.get("next"), `/notificacoes/${notices[0].id}`);
+    const authenticatedClick = await fetch(`${origin}/notificacoes/${notices[0].id}`, { redirect: "manual", headers: { Cookie: a } });
+    assert.equal(new URL(authenticatedClick.headers.get("location")!).searchParams.get("selected"), notices[0].id);
     const key = createECDH("prime256v1"); key.generateKeys();
     const subscription = { endpoint: `https://fcm.googleapis.com/fcm/send/qa-${randomUUID()}`, expirationTime: null, keys: { p256dh: key.getPublicKey().toString("base64url"), auth: Buffer.alloc(16, 3).toString("base64url") } };
     const endpoint = { endpoint: subscription.endpoint };
@@ -47,7 +64,8 @@ test("Web Push HTTP: sessão, origem, propriedade, validação e proteção do c
     assert.equal((await request("/api/push/subscriptions", "POST", { ...subscription, endpoint: "https://127.0.0.1/private" }, a)).status, 400);
     const saved = await request("/api/push/subscriptions", "POST", subscription, a);
     assert.equal(saved.status, 200); assert.equal(saved.headers.get("cache-control"), "private, no-store");
-    assert.deepEqual(await saved.json(), { data: { active: true } });
+    const savedData = (await saved.json()).data;
+    assert.equal(savedData.active, true); assert.equal(savedData.userId, ids[0]); assert.ok(savedData.sessionId); assert.ok(Date.parse(savedData.expiresAt) > Date.now());
     assert.equal((await request("/api/push/subscriptions", "POST", subscription, b)).status, 409);
     assert.deepEqual(await (await request("/api/push/subscriptions/status", "POST", endpoint, b)).json(), { data: { active: false } });
     await request("/api/push/subscriptions", "DELETE", endpoint, b);

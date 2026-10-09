@@ -12,6 +12,9 @@ export const banks = [
   { code: "sicoob", name: "Sicoob", logo: "/banks/sicoob.svg" },
   { code: "viacredi", name: "Viacredi", logo: "/banks/viacredi.jpg" },
   { code: "picpay", name: "PicPay", logo: "/banks/picpay.svg" },
+  { code: "avenue", name: "Avenue", logo: "/banks/Avenue.png" },
+  { code: "clear-corretora", name: "Clear Corretora", logo: "/banks/clear-corretora.png" },
+  { code: "wise", name: "Wise", logo: "/banks/wise.png" },
   { code: "other", name: "Outro", logo: null },
 ] as const;
 
