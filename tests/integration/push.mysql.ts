@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createECDH } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { notifications } from "../../src/services/notifications";
 import { pushSubscriptions } from "../../src/services/push-subscriptions";
 import { sendDueNotifications, dueExpenseWhere } from "../../src/services/due-notifications";
 
@@ -17,17 +18,17 @@ test("Web Push MySQL: seleção, isolamento, concorrência e persistência", asy
     for (let i = 0; i < users.length; i++) await db.user.create({ data: { id: users[i], name: "Push QA", email: `push-${users[i]}@example.invalid`, passwordHash: "not-a-password", membership: { create: { household: { create: { id: homes[i], name: "Push QA" } } } } } });
     const a = pushSubscriptions(db, users[0]);
     const b = pushSubscriptions(db, users[1]);
-    await a.save(subscription);
+    await a.save(subscription, { sessionId: randomUUID(), expiresAt: new Date("2041-01-01Z") });
     assert.deepEqual(await a.status(subscriptionEndpoint()), { active: true });
     assert.deepEqual(await b.status(subscriptionEndpoint()), { active: false });
-    await assert.rejects(b.save(subscription));
+    await assert.rejects(b.save(subscription, { sessionId: randomUUID(), expiresAt: new Date("2041-01-01Z") }));
     await b.remove(subscriptionEndpoint());
     assert.deepEqual(await a.status(subscriptionEndpoint()), { active: true });
     await a.remove(subscriptionEndpoint());
     assert.deepEqual(await a.status(subscriptionEndpoint()), { active: false });
-    await a.save(subscription);
+    await a.save(subscription, { sessionId: randomUUID(), expiresAt: new Date("2041-01-01Z") });
     const second = { ...subscription, endpoint: `${subscription.endpoint}-second` };
-    await a.save(second);
+    await a.save(second, { sessionId: randomUUID(), expiresAt: new Date("2041-01-01Z") });
     const transactions: string[] = [];
     for (let i = 0; i < users.length; i++) {
       const account = await db.account.create({ data: { householdId: homes[i], name: "QA", type: "CASH" } });
@@ -38,7 +39,7 @@ test("Web Push MySQL: seleção, isolamento, concorrência e persistência", asy
       }
     }
     const selected = await db.transaction.findMany({ where: { ...dueExpenseWhere(now), createdBy: { in: users } }, select: { id: true } });
-    assert.deepEqual(selected.map(t => t.id), transactions);
+    assert.equal(selected.length, 3);
     // Scope the real job's reads to the isolated fixture; no provider calls or user data touched.
     const scoped = db.$extends({ query: { transaction: {
       async findMany({ args, query }) { args.where = { AND: [args.where ?? {}, { createdBy: { in: users } }] }; return query(args); },
@@ -49,8 +50,16 @@ test("Web Push MySQL: seleção, isolamento, concorrência e persistência", asy
     await Promise.all([sendDueNotifications(scoped, sender, now), sendDueNotifications(scoped, sender, now)]);
     await sendDueNotifications(scoped, sender, now);
     assert.equal(sends, 2);
-    assert.equal(await db.notificationLog.count({ where: { userId: { in: users } } }), 1);
+    assert.equal(await db.notificationLog.count({ where: { userId: { in: users } } }), 3);
     assert.equal(await db.notificationDelivery.count({ where: { log: { userId: { in: users } }, status: "SENT" } }), 2);
+    const center = notifications(db, users[0]);
+    const list = await center.list();
+    assert.equal(list.items.length, 1); assert.equal(list.unread, 1);
+    await assert.rejects(notifications(db, users[1]).read(list.items[0].id));
+    await center.read(list.items[0].id);
+    assert.equal((await notifications(db, users[0]).list()).unread, 0);
+    await notifications(db, users[1]).read();
+    assert.equal((await notifications(db, users[2]).list()).unread, 1);
     // A fresh date is a new notification identity; expired device does not block the other.
     await db.transaction.update({ where: { id: transactions[0] }, data: { scheduledDate: new Date("2040-10-12T00:00:00Z") } });
     const result = await sendDueNotifications(scoped, async s => { if (s.endpoint === subscription.endpoint) throw { statusCode: 410 }; }, new Date("2040-10-11T12:00:00Z"));

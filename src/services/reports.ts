@@ -1,4 +1,4 @@
-import { annualBalances, consolidatedBalance } from "./balances";
+import { accountBalances, annualBalances, consolidatedBalance } from "./balances";
 import { Prisma, type PrismaClient, type Transaction } from "@prisma/client";
 import type { FinancialActor } from "./finance";
 import { dateOnly, displayStatus, todayInBrazil } from "../lib/finance/dates";
@@ -90,6 +90,10 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
         const divisor = averageMonths(year, today);
         const average = (values: string[]) => divisor ? money(values.slice(0, divisor).reduce((sum, v) => sum.plus(v), decimal()).div(divisor)) : null;
         const balances = await annualBalances(tx, householdId, year);
+        // Investments are Account rows too: sum each account once, without the
+        // Saldo Geral inclusion filter. Use the current account period, not the report year.
+        const currentAccounts = await accountBalances(tx, householdId, monthDate(Number(today.slice(0, 4)), Number(today.slice(5, 7)) + 1));
+        const totalWealth = money(currentAccounts.reduce((sum, account) => sum.plus(account.balance), decimal()));
         const monthlySummary: { month: number; income: string; expenses: string; netSavings: string; balance: string }[] = [];
         for (let index = 0; index < 12; index++) {
           const rows = groups.filter((r) => r.competenceDate.getUTCMonth() === index);
@@ -102,7 +106,7 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
           return { ...category, months, total: money(months.reduce((sum, v) => sum.plus(v), decimal())), average: average(months) };
         });
         const annualTotals = Object.fromEntries((["income", "expenses", "netSavings"] as const).map((key) => [key, money(monthlySummary.reduce((sum, row) => sum.plus(row[key]), decimal()))])) as { income: string; expenses: string; netSavings: string };
-        return { year, averageMonths: divisor, availableYears: await years(tx), monthlySummary, annualTotals: { ...annualTotals, balance: balances[11] }, averages: { income: average(monthlySummary.map((r) => r.income)), expenses: average(monthlySummary.map((r) => r.expenses)), netSavings: average(monthlySummary.map((r) => r.netSavings)) }, incomeCategories: categoryRows.filter((c) => c.type === "INCOME"), expenseCategories: categoryRows.filter((c) => c.type === "EXPENSE") };
+        return { year, totalWealth, averageMonths: divisor, availableYears: await years(tx), monthlySummary, annualTotals: { ...annualTotals, balance: balances[11] }, averages: { income: average(monthlySummary.map((r) => r.income)), expenses: average(monthlySummary.map((r) => r.expenses)), netSavings: average(monthlySummary.map((r) => r.netSavings)) }, incomeCategories: categoryRows.filter((c) => c.type === "INCOME"), expenseCategories: categoryRows.filter((c) => c.type === "EXPENSE") };
       });
     },
   };

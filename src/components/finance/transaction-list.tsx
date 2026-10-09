@@ -1,17 +1,25 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Copy, Trash2 } from "lucide-react";
 import { TransactionActions } from "./transaction-actions";
 import { Modal } from "./controls";
-import { currency, statusLabels, type TransactionRecord } from "@/lib/finance/client";
+import { currency, statusLabels, financialRequest, type TransactionRecord } from "@/lib/finance/client";
 import { displayDate, displayCompetence } from "@/lib/finance/dates";
 
-export function TransactionList({ rows, onEdit, onDelete, onRepeat }: { rows: TransactionRecord[]; onRepeat: (row: TransactionRecord) => void; onEdit: (row: TransactionRecord) => void; onDelete: (row: TransactionRecord) => void }) {
+export function TransactionList({ rows, onEdit, onDelete, onRepeat, selectedId }: { rows: TransactionRecord[]; selectedId?: string; onRepeat: (row: TransactionRecord) => void; onEdit: (row: TransactionRecord) => void; onDelete: (row: TransactionRecord) => void }) {
   const [details, setDetails] = useState<TransactionRecord | null>(null);
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    if (!selectedId) return;
+    const controller = new AbortController();
+    void financialRequest<{ data: TransactionRecord }>(`/api/transactions/${selectedId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) setDetails(r.data); }).catch(e => { if (!controller.signal.aborted) setLoadError(e.message); });
+    return () => controller.abort();
+  }, [selectedId]);
   const actions = (row: TransactionRecord) => <TransactionActions description={row.description} onDetails={() => setDetails(row)} onEdit={() => onEdit(row)} onDelete={() => onDelete(row)} />;
   const amount = (row: TransactionRecord) => <strong className={`ledger-amount ${row.type.toLowerCase()}`}>{row.type === "INCOME" ? "+" : "−"} {currency(row.amount)}</strong>;
   const status = (row: TransactionRecord) => <span className={`status-chip ${row.displayStatus.toLowerCase()}`}>{statusLabels[row.displayStatus]}</span>;
   return <>
+    {loadError && <p role="alert">{loadError}</p>}
     <div className="ledger-desktop"><table className="ledger-table"><caption className="ledger-caption">Lançamentos — selecione a descrição para ver os detalhes</caption><thead><tr><th scope="col">Descrição / Categoria</th><th scope="col">Competência</th><th scope="col">Data prevista</th><th scope="col">Conta</th><th scope="col">Status</th><th scope="col" className="ledger-value">Valor</th><th scope="col">Ações</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => setDetails(row)}>
       <td><button className="ledger-description" onClick={(event) => { event.stopPropagation(); setDetails(row); }} aria-label={`Ver detalhes de ${row.description}`}><strong>{row.description}{row.installmentPlanId && ` · ${row.installmentNumber}/${row.installmentCount}`}{row.recurringOccurrenceId && " · Mensal"}</strong><span>{row.category.name}</span></button></td>
       <td>{displayCompetence(row.competenceDate)}</td><td>{displayDate(row.scheduledDate)}</td><td className="ledger-account">{row.account.name}</td><td>{status(row)}</td><td className="ledger-value">{amount(row)}</td>

@@ -17,7 +17,7 @@ test("seletor e logos: edição, contas antigas, Outro, erro e troca de institui
     const select = container.querySelector("select")!;
     assert.equal(select.value, "viacredi");
     assert.equal(select.labels?.[0].textContent, "Banco / Instituição financeira");
-    assert.equal(select.options.length, 14);
+    assert.equal(select.options.length, 17);
     await act(async () => { select.value = "nubank"; select.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
     assert.equal(new dom.window.FormData(container.querySelector("form")!).get("bankCode"), "nubank");
     const img = container.querySelector("img")!;

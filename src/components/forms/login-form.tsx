@@ -7,8 +7,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
+import { clearPushOnLogout } from "@/lib/push/browser";
 import { Field } from "@/components/ui/field";
-export function LoginForm() {
+export function LoginForm({ destination = "/dashboard" }: { destination?: string }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -16,9 +17,10 @@ export function LoginForm() {
   async function submit(data: LoginInput) {
     setError("");
     try {
+      await clearPushOnLogout();
       const result = await signIn("credentials", { ...data, redirect: false });
       if (result?.error) { setError(result.error === "CredentialsSignin" ? "E-mail ou senha inválidos." : "Não foi possível entrar. Tente novamente."); return; }
-      setSuccess(true); router.replace("/dashboard"); router.refresh();
+      setSuccess(true); router.replace(destination); router.refresh();
     } catch { setError("Não foi possível conectar. Tente novamente."); }
   }
   return <form onSubmit={handleSubmit(submit)} noValidate className="form-stack">
