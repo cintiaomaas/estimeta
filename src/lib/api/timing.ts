@@ -1,9 +1,11 @@
+import type { ReportStage } from "../finance/report-timing";
+
 /** Only durations and fixed stage names are returned, never SQL or user data. */
 export function requestTiming() {
   const started = performance.now();
   const stages: string[] = [];
   return {
-    async measure<T>(name: "auth" | "data", work: () => Promise<T>): Promise<T> {
+    async measure<T>(name: "auth" | "data" | ReportStage, work: () => Promise<T>): Promise<T> {
       const start = performance.now();
       try { return await work(); }
       finally { stages.push(`${name};dur=${(performance.now() - start).toFixed(1)}`); }
