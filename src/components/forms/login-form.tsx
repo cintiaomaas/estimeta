@@ -20,7 +20,7 @@ export function LoginForm({ destination = "/dashboard" }: { destination?: string
       await clearPushOnLogout();
       const result = await signIn("credentials", { ...data, redirect: false });
       if (result?.error) { setError(result.error === "CredentialsSignin" ? "E-mail ou senha inválidos." : "Não foi possível entrar. Tente novamente."); return; }
-      setSuccess(true); router.replace(destination); router.refresh();
+      setSuccess(true); router.replace(destination);
     } catch { setError("Não foi possível conectar. Tente novamente."); }
   }
   return <form onSubmit={handleSubmit(submit)} noValidate className="form-stack">

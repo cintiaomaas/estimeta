@@ -28,5 +28,8 @@ export async function financialRequest<T>(url: string, options?: RequestInit): P
   const response = await fetch(url, { ...options, cache: "no-store", headers: { "Content-Type": "application/json", ...options?.headers } });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error?.message ?? "Não foi possível concluir a solicitação.");
+  if (typeof window !== "undefined" && options?.method && !["GET", "HEAD"].includes(options.method.toUpperCase()) && /^\/api\/(accounts|categories)(?:[/?]|$)/.test(url)) {
+    window.dispatchEvent(new Event("financial-catalogs-changed"));
+  }
   return result as T;
 }

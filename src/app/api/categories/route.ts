@@ -1,10 +1,12 @@
+import { requestTiming } from "@/lib/api/timing";
 import { financeContext, financeError, financeResponse, readJson } from "@/lib/api/finance";
 export async function GET(request: Request) {
+  const timing = requestTiming();
   try {
-    const service = await financeContext(request);
-    const result = await service.categories(Object.fromEntries(new URL(request.url).searchParams));
-    return financeResponse({ data: result });
-  } catch (error) { return financeError(error); }
+    const service = await timing.measure("auth", () => financeContext(request));
+    const result = await timing.measure("data", () => service.categories(Object.fromEntries(new URL(request.url).searchParams)));
+    return timing.finish(financeResponse({ data: result }));
+  } catch (error) { return timing.finish(financeError(error)); }
 }
 export async function POST(request: Request) {
   try {
