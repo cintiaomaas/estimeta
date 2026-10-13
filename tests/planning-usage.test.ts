@@ -18,9 +18,9 @@ for (const [amount, usage, remaining, excess, label] of [
  const html = renderToStaticMarkup(createElement(PlanningGroupUsage, {group}));
  assert.ok(html.includes(label)); assert.ok(html.includes(`${usage}% do planejado utilizado`));
  assert.ok(html.includes(`aria-valuetext="${usage}% do planejado utilizado"`));
- assert.ok(html.includes(`value="${Math.min(100, Number(usage))}"`));
+ assert.ok(html.includes(`value="${Number(usage)}"`));
  assert.ok(html.includes('10% da renda')); assert.ok(html.includes('R$ 500,00 planejados'));
- assert.ok(html.includes(excess !== '0.00' ? 'R$ 75,00 acima do planejado' : `R$ ${remaining.replace('.',',')} disponíveis`));
+ assert.ok(html.includes(excess !== '0.00' ? 'R$ 75,00 acima do planejado' : `R$ ${remaining.replace('.',',')} restantes nesta categoria`));
  const tooltip = renderToStaticMarkup(createElement(PlanningGroupUsage, {group,tooltip:true}));
  assert.ok(tooltip.includes('comprometidos')); assert.ok(tooltip.includes(label)); assert.ok(tooltip.includes(`${usage}% do planejado utilizado`)); assert.ok(!tooltip.includes('<progress'));
 });
@@ -28,4 +28,15 @@ test('renda zero: texto acessível sem divisão, NaN ou infinito', () => {
  const group = calculatePlanning({...config,referenceIncome:'0'}, '0', [{ categoryId:'category',amount:'350' }]).groups[0];
  const html = renderToStaticMarkup(createElement(PlanningGroupUsage,{group}));
  assert.ok(html.includes('Utilização indisponível')); assert.ok(html.includes('Sem renda de referência')); assert.ok(!/NaN|Infinity/.test(html));
+});
+
+test('excessos distintos mantêm seus valores na mesma escala, com limite de 100%', () => {
+ for (const [amount, usage] of [['910.15', '182.03'], ['1167.40', '233.48']]) {
+  const group = calculatePlanning(config, '0', [{ categoryId: 'category', amount }]).groups[0];
+  const html = renderToStaticMarkup(createElement(PlanningGroupUsage, { group, scaleMax: 250 }));
+  assert.ok(html.includes('max="250"'));
+  assert.ok(html.includes(`value="${usage}"`));
+  assert.ok(html.includes('left:40%'));
+  assert.ok(html.includes('Limite planejado: 100%'));
+ }
 });

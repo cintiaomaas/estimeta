@@ -19,3 +19,4 @@ public/swagger/
 .tmp/
 docs/
 AGENTS.md
+tests/performance/
