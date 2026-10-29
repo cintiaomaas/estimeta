@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { money } from "./finance";
 const percent = z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, "Use um percentual com até duas casas decimais.").refine((v) => Number(v) > 0 && Number(v) <= 100, "O percentual deve ser maior que zero e no máximo 100%.");
 export const percentUnits = (v: string) => { const [whole, part = ""] = v.split("."); return Number(whole) * 100 + Number(part.padEnd(2, "0")); };
 export const planningSchema = z.object({
   revision: z.number().int().min(0), enabled: z.boolean(), incomeSource: z.enum(["REALIZED", "MANUAL"]),
-  referenceIncome: z.string().regex(/^\d{1,13}(\.\d{1,2})?$/, "Informe uma renda válida, com até duas casas decimais."),
+  referenceIncome: money,
   groups: z.array(z.object({
     name: z.string().trim().min(1, "Informe o nome do grupo.").max(100),
     percentage: percent, alertPercentage: percent, active: z.boolean(),

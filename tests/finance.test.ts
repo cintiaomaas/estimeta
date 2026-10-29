@@ -6,7 +6,7 @@ import { currency, moneyInput, formatMoneyInput } from "../src/lib/finance/clien
 const input = { accountId: "10000000-0000-4000-8000-000000000001", categoryId: "10000000-0000-4000-8000-000000000002", type: "INCOME", description: "Salário", amount: "5000.01", scheduledDate: "2027-02-05", transactionDate: "2027-02-05", competenceDate: "2027-01-25", status: "RECEIVED" };
 test("entrada monetária formata reais inteiros, agrupamento brasileiro e centavos sem arredondamento", () => {
   for (const [typed, formatted, stored] of [
-    ["5000", "5.000,00", "5000.00"], ["5.000", "5.000,00", "5000.00"],
+    ["5000", "5.000,00", "5000.00"], ["5000, 00", "5.000,00", "5000.00"],
     ["5.000,00", "5.000,00", "5000.00"], ["5000,5", "5.000,50", "5000.50"],
     ["5000.59", "5.000,59", "5000.59"], ["0,01", "0,01", "0.01"],
     ["9999999999999,99", "9.999.999.999.999,99", "9999999999999.99"],

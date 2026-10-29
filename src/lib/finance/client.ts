@@ -15,9 +15,14 @@ export function currency(value: string) {
 /** Accept plain decimal or Brazilian grouping; server still validates precision/range. */
 export function moneyInput(value: string) {
   const trimmed = value.trim();
+  // Spaces are allowed only beside the decimal separator, never inside digits
+  // or grouping. A dot followed by three digits is ambiguous and stays invalid.
+  const decimal = trimmed.includes(",")
+    ? trimmed.replace(/\s*,\s*/g, ",")
+    : trimmed.replace(/\s*\.\s*/g, ".");
   // Validate grouping before removing separators; never silently round excess cents.
-  if (/^(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2}$/.test(trimmed)) return trimmed.replace(/\./g, "").replace(",", ".");
-  if (/^\d{1,3}(?:\.\d{3})+$/.test(trimmed)) return trimmed.replace(/\./g, "");
+  if (/^(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2}$/.test(decimal)) return decimal.replace(/\./g, "").replace(",", ".");
+  if (/^\d+(?:\.\d{1,2})?$/.test(decimal)) return decimal;
   return trimmed;
 }
 export function formatMoneyInput(value: string) {

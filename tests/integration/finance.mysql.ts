@@ -69,6 +69,23 @@ test("núcleo financeiro integrado ao MySQL: persistência, integridade e isolam
       await b.saveCategory({ name: "Categoria teste A", type: "EXPENSE" });
     });
     const pending = () => ({ accountId: accountA.id, categoryId: categoryA.id, type: "EXPENSE", description: "Internet integração", amount: "120.59", scheduledDate: "2027-02-10", transactionDate: null, competenceDate: "2027-01-21", status: "PENDING" });
+    await suite.test("valores monetários: criação, edição e leitura em nova conexão", async () => {
+      const fresh = new PrismaClient();
+      try {
+        for (const amount of ["5300,00", "5300.00", "5.300,00", "5300", "5300, 00", "9999999999999,99"]) {
+          const expected = amount.startsWith("999") ? "9999999999999.99" : "5300.00";
+          const created = await a.saveTransaction({ ...pending(), amount });
+          try {
+            assert.equal(created.amount, expected);
+            assert.equal((await fresh.transaction.findUniqueOrThrow({ where: { id: created.id } })).amount.toFixed(2), expected);
+            await a.saveTransaction({ ...pending(), amount: "0,01" }, created.id);
+            assert.equal((await a.transaction(created.id)).amount, "0.01");
+            await a.saveTransaction({ ...pending(), amount }, created.id);
+            assert.equal((await fresh.transaction.findUniqueOrThrow({ where: { id: created.id } })).amount.toFixed(2), expected);
+          } finally { await a.removeTransaction(created.id); }
+        }
+      } finally { await fresh.$disconnect(); }
+    });
     await suite.test("cria INCOME e EXPENSE com competência independente da data efetiva", async () => {
       expense = await a.saveTransaction(pending());
       assert.equal(expense.competenceDate, "2027-01-01");
