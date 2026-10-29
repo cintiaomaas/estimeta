@@ -15,7 +15,7 @@ export function MoneyField({ id, label, name, value, defaultValue = "", onValueC
     setInput({ source: normalized, text: blur ? displayMoneyInput(raw) : raw });
     onValueChange?.(normalized);
   }
-  return <><Field ref={ref} id={id} label={label} inputMode="decimal" placeholder="0,00" value={text} hint={hint} error={error} readOnly={readOnly} disabled={disabled}
+  return <><Field ref={ref} id={id} label={label} type="text" inputMode="decimal" placeholder="0,00" value={text} hint={hint} error={error} readOnly={readOnly} disabled={disabled}
     onFocus={event => { if (!readOnly && normalizeMoneyInput(event.currentTarget.value) === "0.00") event.currentTarget.select(); }}
     onChange={event => update(event.target.value)} onBlur={event => { update(event.target.value, true); onBlur?.(); }} />
     {name && <input type="hidden" name={name} value={normalizeMoneyInput(text)} disabled={disabled} />}</>;

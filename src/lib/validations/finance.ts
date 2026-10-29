@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { bankCodes } from "../finance/banks";
+import { normalizeMoneyInput } from "../finance/money-input";
 
 const name = z.string().trim().min(1, "Informe o nome.").max(100, "O nome deve ter até 100 caracteres.").transform((value) => value.replace(/\s+/g, " "));
 export const transactionType = z.enum(["INCOME", "EXPENSE"]);
 // No floating point conversion: decimal strings travel intact to Prisma Decimal.
-const money = z.string().regex(/^\d{1,13}(\.\d{1,2})?$/, "Informe um valor positivo, com até 13 dígitos inteiros e 2 decimais (ex.: 120.50).");
+export const money = z.string().transform(normalizeMoneyInput).pipe(z.string().regex(/^\d{1,13}(\.\d{1,2})?$/, "Informe um valor com até 13 dígitos inteiros e 2 decimais (ex.: 5300,00 ou 5.300,00)."));
 export const financialDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida.").refine((value) => {
   const date = new Date(`${value}T00:00:00.000Z`);
   return value >= "1000-01-01" && value <= "9999-12-31" && !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
