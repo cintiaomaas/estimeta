@@ -6,7 +6,7 @@ import { Modal } from "./controls";
 import { currency, statusLabels, financialRequest, type TransactionRecord } from "@/lib/finance/client";
 import { displayDate, displayCompetence } from "@/lib/finance/dates";
 
-export function TransactionList({ rows, onEdit, onDelete, onRepeat, selectedId }: { rows: TransactionRecord[]; selectedId?: string; onRepeat: (row: TransactionRecord) => void; onEdit: (row: TransactionRecord) => void; onDelete: (row: TransactionRecord) => void }) {
+export function TransactionList({ rows, onEdit, onDelete, onRepeat, selectedId, onPay, paymentBusy }: { onPay: (row: TransactionRecord) => void; paymentBusy: boolean; rows: TransactionRecord[]; selectedId?: string; onRepeat: (row: TransactionRecord) => void; onEdit: (row: TransactionRecord) => void; onDelete: (row: TransactionRecord) => void }) {
   const [details, setDetails] = useState<TransactionRecord | null>(null);
   const [loadError, setLoadError] = useState("");
   useEffect(() => {
@@ -15,7 +15,7 @@ export function TransactionList({ rows, onEdit, onDelete, onRepeat, selectedId }
     void financialRequest<{ data: TransactionRecord }>(`/api/transactions/${selectedId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) setDetails(r.data); }).catch(e => { if (!controller.signal.aborted) setLoadError(e.message); });
     return () => controller.abort();
   }, [selectedId]);
-  const actions = (row: TransactionRecord) => <TransactionActions description={row.description} onDetails={() => setDetails(row)} onEdit={() => onEdit(row)} onDelete={() => onDelete(row)} />;
+  const actions = (row: TransactionRecord) => <TransactionActions onPay={row.type === "EXPENSE" && row.status === "PENDING" && !paymentBusy ? () => onPay(row) : undefined} description={row.description} onDetails={() => setDetails(row)} onEdit={() => onEdit(row)} onDelete={() => onDelete(row)} />;
   const amount = (row: TransactionRecord) => <strong className={`ledger-amount ${row.type.toLowerCase()}`}>{row.type === "INCOME" ? "+" : "−"} {currency(row.amount)}</strong>;
   const status = (row: TransactionRecord) => <span className={`status-chip ${row.displayStatus.toLowerCase()}`}>{statusLabels[row.displayStatus]}</span>;
   return <>

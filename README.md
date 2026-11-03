@@ -96,7 +96,6 @@ npm.cmd ci
 npm.cmd run db:generate
 npm.cmd run db:deploy
 ```
-
 Para espaços antigos que ainda não receberam categorias padrão:
 
 ```powershell
@@ -147,7 +146,8 @@ A versão com Central de Notificações exige a migration `20261009120000_notifi
 ### Regras comuns: dinheiro, datas e isolamento
 
 - Os dados financeiros pertencem a um **espaço familiar** (`Household`). O servidor identifica esse espaço pela sessão e impede acesso a registros de outros espaços.
-- Valores são exibidos em reais, com duas casas decimais. Lançamentos, transferências, metas e contribuições exigem valor maior que zero; saldo inicial de conta pode ser zero, mas não negativo.
+- Totais e relatórios são exibidos em reais, com duas casas decimais. Contas estrangeiras também apresentam valores na moeda original; saldo inicial e lançamentos são informados na moeda da conta. Lançamentos, transferências, metas e contribuições exigem valor maior que zero; saldo inicial de conta pode ser zero, mas não negativo.
+- Campos monetários aceitam vírgula decimal e formatação brasileira, como `1.234,56`, com normalização antes de salvar.
 - **Competência** é o mês ao qual o valor pertence e fica armazenada no primeiro dia do mês. Relatórios e saldos acumulados usam essa competência.
 - **Data prevista** é o vencimento ou recebimento esperado. **Data efetiva** registra quando ocorreu o pagamento ou recebimento. Essas datas são independentes da competência.
 - O calendário usado para definir hoje, atraso e vencimento amanhã é `America/Sao_Paulo`.
@@ -174,6 +174,16 @@ Rota: `/contas`.
 - Contas inativas preservam histórico e saldo. A opção `includeInTotalBalance` define se entram no saldo geral, independentemente de estarem ativas.
 - Ao excluir uma conta que tenha vínculos com lançamentos, recorrências, transferências, metas ou contribuições, o app apenas a desativa. Sem vínculos, a exclusão é definitiva.
 - Novos vínculos exigem contas ativas. Ao editar um registro existente, é permitido manter a conta inativa que já estava vinculada.
+- Os cartões podem ser reordenados pelo controle de arraste, com mouse ou toque, ou pelas teclas de seta quando o controle estiver em foco. A ordem fica salva no espaço familiar; se o salvamento falhar, a interface restaura a ordem anterior.
+
+### Contas multimoeda e cotações
+
+- Moedas disponíveis: real (BRL), dólar americano (USD), euro (EUR) e peso argentino (ARS). A moeda não pode ser alterada quando a conta já possui saldo inicial ou movimentação.
+- O saldo é calculado na moeda da conta e convertido para reais na consulta. A apresentação inclui valor original, taxa, fonte e data da cotação; saldos negativos mantêm o destaque visual.
+- A integração com Frankfurter v2 consulta taxas de referência no servidor e mantém cache diário no banco. **Atualizar cotações**, na tela de Contas, solicita uma nova consulta. A referência de ARS não representa cotação paralela ou oferta de corretora.
+- Meses anteriores usam a referência do fechamento mensal, persistida no primeiro acesso; períodos atuais e futuros usam a cotação atual. Em dias sem publicação, a data da referência pode ser anterior à consulta.
+- Em falhas, a última referência disponível é preservada com aviso. Sem cotação válida, a conversão fica indisponível e os totais indicam saldo parcial. Novos movimentos estrangeiros exigem cotação válida para o dia.
+- Lançamentos preservam o valor original e a taxa registrada ao salvar, além do valor em BRL usado nos relatórios, planejamento e notificações. Editar sem mudar conta ou valor mantém essa conversão. Variação cambial do saldo não cria receitas ou despesas.
 
 ### Categorias
 
@@ -192,6 +202,7 @@ Rotas: `/receitas`, `/despesas` e `/transacoes`.
 - Todo lançamento exige descrição, valor positivo, conta, categoria, competência, data prevista e status. Observações são opcionais.
 - Receita pode estar **prevista** (`PENDING`) ou **recebida** (`RECEIVED`). Despesa pode estar **prevista** (`PENDING`) ou **paga** (`PAID`).
 - Lançamento realizado exige data efetiva. Lançamento previsto não pode ter data efetiva.
+- Despesas previstas, inclusive atrasadas, oferecem **Marcar como pago** no menu de ações. A confirmação permite escolher a data de pagamento, inicialmente preenchida com hoje no calendário brasileiro, sem abrir o formulário completo.
 - **Atrasada** é uma classificação calculada para despesa pendente cujo vencimento é anterior a hoje; não é um status gravado. Receita pendente continua prevista mesmo após a data esperada.
 - O filtro de previstas separa as despesas atrasadas. Mês/ano filtram competência; busca usa a descrição. Também há filtros por conta, categoria, tipo e status, ordenação e paginação.
 - Edição altera somente o lançamento escolhido. Exclusão remove o lançamento e recalcula os resultados; avisos já registrados na Central permanecem no histórico.
@@ -216,6 +227,7 @@ Rota: `/recorrencias`.
 - Existe no máximo uma ocorrência por regra e competência. Gerar novamente um mês que já tem lançamento não cria duplicata. Se o lançamento foi excluído, uma geração manual explícita permite recriá-lo.
 - O vencimento deve estar dentro da vigência. Dia 31 em um mês mais curto é ajustado ao último dia desse mês.
 - Alterar a regra afeta apenas gerações futuras; os lançamentos existentes permanecem iguais. Desativar impede novas gerações e preserva os lançamentos anteriores.
+- **Excluir** remove definitivamente a regra e seus vínculos de ocorrência, preservando os lançamentos financeiros já gerados e seus valores. A exclusão exige confirmação na interface. Para interromper a geração e permitir reativação posterior, use **Desativar**.
 - Edições concorrentes são recusadas quando a revisão está desatualizada; reabra a regra antes de salvar.
 
 ### Transferências entre contas
@@ -224,7 +236,8 @@ Rota: `/transferencias`.
 
 - Origem e destino devem ser contas diferentes do mesmo espaço; novos vínculos exigem contas ativas. Valor deve ser positivo, com data da transferência e competência informadas.
 - Transferência debita a origem e credita o destino por competência. Não é receita nem despesa e não altera a economia do mês.
-- Entre duas contas incluídas no saldo geral, o efeito consolidado é zero. Se apenas uma participa do saldo geral, o consolidado muda. Não há bloqueio por saldo insuficiente na origem.
+- Entre duas contas em BRL incluídas no saldo geral, o efeito consolidado é zero. Se apenas uma participa do saldo geral, o consolidado muda. Não há bloqueio por saldo insuficiente na origem.
+- Em contas estrangeiras, o valor de saída é informado na moeda da origem. Para destino estrangeiro, é possível informar o valor recebido; a transferência preserva os valores próprios de cada lado e sua referência em reais. A avaliação dos saldos pela cotação consultada pode produzir diferenças cambiais no consolidado, sem alterar a economia do mês.
 - Editar ou excluir recalcula os saldos. Se houver contribuição de meta vinculada, remova esse vínculo antes de editar ou excluir a transferência.
 
 ### Planejamento da renda
@@ -237,6 +250,7 @@ Rota: `/configuracoes/planejamento`; acompanhamento no Dashboard.
 - Uma categoria não pode se repetir no mesmo grupo nem pertencer a dois grupos ativos. Só são aceitas categorias de despesa do espaço.
 - **Planejado = renda de referência × percentual do grupo. Comprometido = despesas pagas + previstas**, incluindo atrasadas, nas categorias do grupo e na competência selecionada.
 - O alerta é calculado sobre o valor planejado do grupo. Os estados são dentro do limite, próximo do limite, limite atingido e excedido; sem renda positiva, a avaliação fica indisponível.
+- As barras de utilização destacam o limite planejado de 100% e ampliam a escala quando há excesso. A interface informa o valor restante ou excedido; quando o valor planejado é zero, a utilização percentual fica indisponível.
 - Despesas fora dos grupos ativos aparecem como não classificadas. O planejamento não cria lançamentos nem movimenta contas.
 - A configuração atual é usada ao consultar os períodos; não existe versão histórica por mês. Alterações concorrentes exigem recarregar antes de salvar.
 
@@ -289,6 +303,7 @@ Rotas: `/notificacoes` e `/configuracoes`.
 
 ### PWA e navegação
 
+- Durante a navegação autenticada, contas e categorias são reaproveitadas temporariamente em memória para reduzir consultas repetidas. Os gráficos são renderizados quando se aproximam da área visível da tela.
 - O app fornece manifest e ícones para instalação nos navegadores compatíveis.
 - O service worker trata Push e abertura de notificações. Não implementa uso financeiro offline nem cache das requisições financeiras.
 - Sem conexão, as operações que dependem do servidor ficam indisponíveis. O armazenamento local do worker mantém dados de autorização de Push, sem conteúdo financeiro.

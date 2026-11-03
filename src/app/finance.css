@@ -33,3 +33,6 @@
 .planning-donut .recharts-sector{-webkit-tap-highlight-color:transparent}
 .planning-donut .recharts-pie-sector:focus,
 .planning-donut .recharts-sector:focus{outline:none}
+
+.account-exchange { display: grid; gap: .2rem; margin-top: .5rem; color: var(--muted, #65736d); font-size: .75rem; line-height: 1.5; }
+.account-exchange small { font-size: inherit; }

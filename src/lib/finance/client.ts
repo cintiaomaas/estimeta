@@ -1,6 +1,8 @@
-export type AccountRecord = { bankCode?: string | null; id: string; name: string; type: string; initialBalance: string; isActive: boolean; includeInTotalBalance: boolean; balance?: string; balancePeriod?: string };
+export type AccountRecord = { currency?: string; originalBalance?: string; initialBalanceBRL?: string | null; exchange?: { rate: string; referenceDate: string; source: string; stale: boolean; checkedAt: string } | null; bankCode?: string | null; id: string; name: string; type: string; initialBalance: string; isActive: boolean; includeInTotalBalance: boolean; balance?: string | null; balancePeriod?: string };
 export type CategoryRecord = { id: string; name: string; type: "INCOME" | "EXPENSE"; isActive: boolean };
 export type TransactionRecord = {
+  originalAmount?: string | null; exchangeRate?: string | null;
+  updatedAt?: string;
   installmentPlanId?: string | null; installmentNumber?: number | null; installmentCount?: number | null; recurringOccurrenceId?: string | null;
   id: string; type: "INCOME" | "EXPENSE"; description: string; amount: string; accountId: string; categoryId: string;
   scheduledDate: string; transactionDate: string | null; competenceDate: string; status: string; displayStatus: string; notes: string | null;

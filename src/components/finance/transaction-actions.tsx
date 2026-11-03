@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EllipsisVertical, Info, Pencil, Trash2, type LucideIcon } from "lucide-react";
+import { Check, EllipsisVertical, Info, Pencil, Trash2, type LucideIcon } from "lucide-react";
 
-export function TransactionActions({ description, onDetails, onEdit, onDelete }: { description: string; onDetails: () => void; onEdit: () => void; onDelete: () => void }) {
+export function TransactionActions({ description, onDetails, onEdit, onDelete, onPay }: { onPay?: () => void; description: string; onDetails: () => void; onEdit: () => void; onDelete: () => void }) {
   return <RowActions description={description} items={[
+    ...(onPay ? [{ label: "Marcar como pago", icon: Check, onSelect: onPay }] : []),
     { label: "Ver detalhes", icon: Info, onSelect: onDetails },
     { label: "Editar", icon: Pencil, onSelect: onEdit },
     { label: "Excluir", icon: Trash2, onSelect: onDelete, danger: true },

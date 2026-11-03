@@ -18,6 +18,7 @@ export const recurringSchema = z.object({
 }).strict().refine((data) => !data.endDate || data.endDate >= data.startDate, { path: ["endDate"], message: "O término deve ser igual ou posterior ao início." });
 export const generationSchema = z.object({ competenceDate: transactionSchema.shape.competenceDate }).strict();
 export const transferSchema = z.object({
+  destinationAmount: transactionSchema.shape.amount.optional(),
   sourceAccountId: z.uuid("Selecione a conta de origem."), destinationAccountId: z.uuid("Selecione a conta de destino."),
   amount: transactionSchema.shape.amount, transferDate: financialDate, competenceDate: transactionSchema.shape.competenceDate,
   description: z.string().trim().max(200).default(""), notes: transactionSchema.shape.notes,

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { SlidersHorizontal, X, Undo2 } from "lucide-react";
 import { months } from "./date-field";
@@ -38,6 +38,28 @@ export function TransactionsManager({ fixedType, openNew, initialPeriod, selecte
   const [deleting, setDeleting] = useState<TransactionRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [payment, setPayment] = useState<TransactionRecord | null>(null);
+  const [paymentDate, setPaymentDate] = useState(todayInBrazil());
+  const [paymentError, setPaymentError] = useState("");
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const paymentLock = useRef(false);
+  const [undoPayment, setUndoPayment] = useState<TransactionRecord | null>(null);
+  async function pay(row: TransactionRecord, date: string | null) {
+    if (paymentLock.current) return;
+    paymentLock.current = true;
+    setPaymentBusy(true); setPaymentError("");
+    try {
+      const response = await financialRequest<{ data: TransactionRecord }>(`/api/transactions/${row.id}`, {
+        method: "PATCH", body: JSON.stringify({ status: date === null ? "PENDING" : "PAID", transactionDate: date, expectedUpdatedAt: row.updatedAt }),
+      });
+      setUndoPayment(date === null ? null : response.data);
+      setMessage(date === null ? "Pagamento desfeito. A despesa voltou a ficar pendente." : `Despesa “${row.description}” marcada como paga.`);
+      setPayment(null);
+      if (result?.data.length === 1 && page > 1 && new URLSearchParams(query).has("status")) setPage(page - 1);
+      refresh(); router.refresh();
+    } catch (error) { setPaymentError((error as Error).message); }
+    finally { paymentLock.current = false; setPaymentBusy(false); }
+  }
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   function closeEditor() {
     setEditor(null); setRepeating(false); setDirty(false); setDiscarding(false);
@@ -90,6 +112,16 @@ export function TransactionsManager({ fixedType, openNew, initialPeriod, selecte
   }
   return <><div className="page-heading"><div><span className="eyebrow">SEU NÚCLEO FINANCEIRO</span><h1>{title}</h1><p>Organize os lançamentos por competência e acompanhe o que está previsto ou realizado.</p></div><button className="button primary" onClick={() => { setRepeating(false); setDirty(false); setEditor("new"); }} disabled={loading || !!error}>Nova {fixedType === "INCOME" ? "receita" : fixedType === "EXPENSE" ? "despesa" : "transação"}</button></div>
     <Feedback error={error} message={message} />
+    {!payment && <Feedback error={paymentError} />}
+    {undoPayment && <button className="button secondary" disabled={paymentBusy} onClick={() => void pay(undoPayment, null)}><Undo2 size={16} />Desfazer pagamento de {undoPayment.description}</button>}
+    {payment && <Modal title="Marcar como pago" busy={paymentBusy} onClose={() => { setPayment(null); setPaymentError(""); }}>
+      <form className="form-stack" onSubmit={event => { event.preventDefault(); void pay(payment, paymentDate); }}>
+        <p>{payment.description} — pagamento na conta {payment.account.name}.</p>
+        <Feedback error={paymentError} />
+        <Field id="quick-payment-date" label="Data de pagamento" type="date" required min="1000-01-01" max="9999-12-31" value={paymentDate} disabled={paymentBusy} onChange={event => setPaymentDate(event.target.value)} />
+        <button className="button primary" disabled={paymentBusy}>{paymentBusy ? "Salvando…" : "Confirmar"}</button>
+      </form>
+    </Modal>}
     {catalogsError && <div role="alert">Não foi possível carregar contas e categorias. <button className="button secondary" onClick={retryCatalogs}>Tentar carregar opções</button></div>}
     <nav className="transaction-tabs" aria-label="Tipos de lançamento"><Link href="/transacoes" aria-current={!fixedType ? "page" : undefined}>Todos</Link><Link href="/receitas" aria-current={fixedType === "INCOME" ? "page" : undefined}>Receitas</Link><Link href="/despesas" aria-current={fixedType === "EXPENSE" ? "page" : undefined}>Despesas</Link><Link href="/recorrencias">Recorrências</Link><Link href="/transferencias">Transferências</Link></nav>
     <section className="panel filters-panel"><div className="filter-toolbar"><button type="button" className="button secondary" aria-expanded={filtersOpen} aria-controls="transaction-filters" onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal size={18} />Filtros e busca</button><span>Competência: {new URLSearchParams(query).get("month") ? `${months[Number(new URLSearchParams(query).get("month")) - 1]} / ` : "Todos os meses / "}{new URLSearchParams(query).get("year") ?? "Todos os anos"} · {Array.from(new URLSearchParams(query).keys()).filter((key) => !["year", "month", "type"].includes(key)).length} filtros adicionais</span><button type="button" className="button secondary" onClick={clearFilters}><X size={16} />Limpar filtros</button></div><form id="transaction-filters" key={filterKey} hidden={!filtersOpen} noValidate onSubmit={filter} className="filters-grid">
@@ -104,7 +136,7 @@ export function TransactionsManager({ fixedType, openNew, initialPeriod, selecte
       <Select id="filter-order" label="Direção" name="order"><option value="desc">Decrescente</option><option value="asc">Crescente</option></Select>
       <button className="button primary" disabled={loading}>Aplicar filtros</button>
     </form></section>
-    {loading ? <p role="status">Carregando lançamentos…</p> : error ? <button className="button secondary" onClick={refresh}>Tentar novamente</button> : result && !result.data.length ? <section className="panel empty-state"><h2>{fixedType === "INCOME" ? "Nenhuma receita encontrada." : fixedType === "EXPENSE" ? "Nenhuma despesa encontrada." : "Nenhuma transação neste período."}</h2><p>Ajuste os filtros ou adicione seu primeiro lançamento.</p></section> : <TransactionList selectedId={selectedId} onRepeat={(row) => { setRepeating(true); setDirty(false); setEditor(row); }} rows={result?.data ?? []} onEdit={(row) => { setRepeating(false); setDirty(false); setEditor(row); }} onDelete={(row) => { setDeleting(row); setDeleteError(""); }} />}
+    {loading ? <p role="status">Carregando lançamentos…</p> : error ? <button className="button secondary" onClick={refresh}>Tentar novamente</button> : result && !result.data.length ? <section className="panel empty-state"><h2>{fixedType === "INCOME" ? "Nenhuma receita encontrada." : fixedType === "EXPENSE" ? "Nenhuma despesa encontrada." : "Nenhuma transação neste período."}</h2><p>Ajuste os filtros ou adicione seu primeiro lançamento.</p></section> : <TransactionList paymentBusy={paymentBusy} onPay={row => { setPayment(row); setPaymentDate(todayInBrazil()); setPaymentError(""); }} selectedId={selectedId} onRepeat={(row) => { setRepeating(true); setDirty(false); setEditor(row); }} rows={result?.data ?? []} onEdit={(row) => { setRepeating(false); setDirty(false); setEditor(row); }} onDelete={(row) => { setDeleting(row); setDeleteError(""); }} />}
     {!loading && !error && result && result.pagination.total > 0 && <nav className="pagination" aria-label="Paginação"><button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page} de {result.pagination.totalPages} · {result.pagination.total}</span><button className="button secondary" disabled={page >= result.pagination.totalPages} onClick={() => setPage(page + 1)}>Próxima</button></nav>}
     {editor && !loading && !error && <Modal drawer title={repeating ? "Repetir lançamento" : editor === "new" ? "Novo lançamento" : "Editar lançamento"} busy={busy} onClose={() => dirty ? setDiscarding(true) : closeEditor()}>{catalogsLoading ? <p role="status">Carregando contas e categorias…</p> : catalogsError ? <div role="alert">{catalogsError}<button className="button secondary" onClick={retryCatalogs}>Tentar novamente</button></div> : <div onChange={() => setDirty(true)}><TransactionForm repeat={repeating} key={editor === "new" ? `new-${openNew ?? fixedType}` : `${editor.id}-${repeating}`} initial={editor === "new" ? undefined : editor} defaultType={openNew ?? fixedType} accounts={accounts} categories={categories} busy={busy} setBusy={setBusy} onSaved={async () => { setMessage(editor === "new" ? "Lançamento criado com sucesso." : "Lançamento atualizado com sucesso."); closeEditor(); refresh(); }} /></div>}</Modal>}
     {discarding && <Modal title="Descartar alterações?" onClose={() => setDiscarding(false)}><p>As alterações deste lançamento ainda não foram salvas.</p><div className="record-actions"><button className="button secondary" onClick={() => setDiscarding(false)}>Continuar editando</button><button className="button danger" onClick={closeEditor}><Undo2 size={18} />Descartar alterações</button></div></Modal>}
