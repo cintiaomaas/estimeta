@@ -1,0 +1,4 @@
+.handle { touch-action: none; cursor: grab; user-select: none; }
+.handle[aria-pressed="true"] { cursor: grabbing; background: var(--lime); color: var(--forest); }
+.handle:disabled { cursor: wait; }
+.target { outline: 3px solid var(--forest); outline-offset: 3px; }

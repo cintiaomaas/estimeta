@@ -69,6 +69,8 @@ enum TransactionStatus {
 }
 
 model Account {
+  currency              String                 @default("BRL") @db.Char(3)
+  position              Int                    @default(2147483647)
   goals FinancialGoal[]
   goalContributions GoalContribution[]
   id                    String                 @id @default(uuid()) @db.Char(36)
@@ -155,6 +157,8 @@ model PlanningGroupCategory {
 }
 
 model Transaction {
+  originalAmount        Decimal? @db.Decimal(15, 2)
+  exchangeRate          Decimal? @db.Decimal(18, 10)
   notificationLogs      NotificationLog[]
   id                    String               @id @default(uuid()) @db.Char(36)
   householdId           String               @db.Char(36)
@@ -318,6 +322,8 @@ model RecurringOccurrence {
 }
 
 model Transfer {
+  sourceAmount          Decimal? @db.Decimal(15, 2)
+  destinationAmount     Decimal? @db.Decimal(15, 2)
   goalContribution GoalContribution?
   id                   String    @id @default(uuid()) @db.Char(36)
   householdId          String    @db.Char(36)
@@ -406,4 +412,14 @@ model GoalContribution {
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   @@unique([transferId, householdId])
   @@index([householdId, goalId, competenceDate])
+}
+
+model ExchangeRate {
+  currency      String   @db.Char(3)
+  requestedDate String   @db.Char(10)
+  referenceDate String   @db.Char(10)
+  rate          Decimal  @db.Decimal(18, 10)
+  source        String   @db.VarChar(100)
+  checkedAt     DateTime @default(now())
+  @@id([currency, requestedDate])
 }

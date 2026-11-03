@@ -13,9 +13,10 @@ import { financialRequest, type AccountRecord, type CategoryRecord } from "@/lib
 import { todayInBrazil } from "@/lib/finance/dates";
 
 export type AdvancedRecord = {
+  sourceAmount?: string | null; destinationAmount?: string | null;
   nextScheduledDate?: string | null;
   id: string; description: string; amount: string; notes: string | null;
-  type: "INCOME" | "EXPENSE"; accountId: string; categoryId: string; account: { name: string }; category: { name: string };
+  type: "INCOME" | "EXPENSE"; accountId: string; categoryId: string; account: { name: string; currency?: string }; category: { name: string };
   startDate: string; endDate: string | null; dayOfMonth: number; isActive: boolean; revision: number;
   sourceAccountId: string; destinationAccountId: string; sourceAccount: { name: string }; destinationAccount: { name: string }; transferDate: string; competenceDate: string;
 };
@@ -26,6 +27,8 @@ export function RecurringForm({ initial, accounts, categories, busy, setBusy, on
     type: initial?.type ?? "EXPENSE", description: initial?.description ?? "", amount: initial?.amount ?? "", accountId: initial?.accountId ?? "", categoryId: initial?.categoryId ?? "", startDate: initial?.startDate ?? todayInBrazil(), endDate: initial?.endDate ?? null, dayOfMonth: initial?.dayOfMonth ?? 10, isActive: initial?.isActive ?? true, revision: initial?.revision ?? 0, notes: initial?.notes ?? null,
   } });
   const type = useWatch({ control, name: "type" });
+  const accountId = useWatch({ control, name: "accountId" });
+  const code = accounts.find(a => a.id === accountId)?.currency ?? "BRL";
   async function save(input: z.output<typeof recurringSchema>) {
     if (busy) return; setBusy(true); setError("");
     try { await financialRequest(`/api/recurring-transactions${initial ? `/${initial.id}` : ""}`, { method: initial ? "PUT" : "POST", body: JSON.stringify(input) }); onSaved(); }
@@ -35,7 +38,7 @@ export function RecurringForm({ initial, accounts, categories, busy, setBusy, on
     <p className="report-note">{initial ? "Alterações valem apenas para competências ainda não geradas. Lançamentos existentes permanecem iguais." : "Serão geradas até três competências a partir do mês atual ou do início futuro. Depois, use Gerar competência. Para valores variáveis, prefira Repetir."}</p>
     <Select id="rec-type" label="Tipo" {...register("type")} onChange={(e) => { setValue("type", e.target.value as typeof type); setValue("categoryId", ""); }}><option value="EXPENSE">Despesa</option><option value="INCOME">Receita</option></Select>
     <Field id="rec-description" label="Descrição" {...register("description")} maxLength={200} autoFocus />
-    <Controller control={control} name="amount" render={({ field }) => <MoneyField id="rec-amount" label="Valor mensal (R$)" {...field} onValueChange={field.onChange} error={errors.amount?.message} />} />
+    <Controller control={control} name="amount" render={({ field }) => <MoneyField id="rec-amount" label={`Valor mensal (${code === "BRL" ? "R$" : code})`} {...field} onValueChange={field.onChange} error={errors.amount?.message} />} />
     <Select id="rec-account" label="Conta" {...register("accountId")}><option value="">Selecione uma conta</option>{accounts.filter((a) => a.isActive || a.id === initial?.accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
     <Select id="rec-category" label="Categoria" {...register("categoryId")}><option value="">Selecione uma categoria</option>{categories.filter((c) => c.type === type && (c.isActive || c.id === initial?.categoryId)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
     <Field id="rec-day" label="Dia do mês (1 a 31)" inputMode="numeric" {...register("dayOfMonth")} />
@@ -49,16 +52,19 @@ export function RecurringForm({ initial, accounts, categories, busy, setBusy, on
 export function TransferForm({ initial, accounts, busy, setBusy, onSaved }: Props) {
   const [error, setError] = useState("");
   const today = todayInBrazil();
-  const { register, control, handleSubmit, formState: { errors } } = useForm<z.input<typeof transferSchema>, unknown, z.output<typeof transferSchema>>({ resolver: zodResolver(transferSchema), defaultValues: { sourceAccountId: initial?.sourceAccountId ?? "", destinationAccountId: initial?.destinationAccountId ?? "", amount: initial?.amount ?? "", transferDate: initial?.transferDate ?? today, competenceDate: initial?.competenceDate ?? `${today.slice(0, 7)}-01`, description: initial?.description ?? "", notes: initial?.notes ?? null } });
+  const { register, control, handleSubmit, formState: { errors } } = useForm<z.input<typeof transferSchema>, unknown, z.output<typeof transferSchema>>({ resolver: zodResolver(transferSchema), defaultValues: { sourceAccountId: initial?.sourceAccountId ?? "", destinationAccountId: initial?.destinationAccountId ?? "", amount: initial?.sourceAmount ?? initial?.amount ?? "", destinationAmount: initial?.destinationAmount ?? undefined, transferDate: initial?.transferDate ?? today, competenceDate: initial?.competenceDate ?? `${today.slice(0, 7)}-01`, description: initial?.description ?? "", notes: initial?.notes ?? null } });
+  const sourceId = useWatch({ control, name: "sourceAccountId" }), destinationId = useWatch({ control, name: "destinationAccountId" });
+  const sourceCode = accounts.find(a => a.id === sourceId)?.currency ?? "BRL", destinationCode = accounts.find(a => a.id === destinationId)?.currency ?? "BRL";
   async function save(input: z.output<typeof transferSchema>) {
     if (busy) return; setBusy(true); setError("");
-    try { await financialRequest(`/api/transfers${initial ? `/${initial.id}` : ""}`, { method: initial ? "PUT" : "POST", body: JSON.stringify(input) }); onSaved(); }
+    try { await financialRequest(`/api/transfers${initial ? `/${initial.id}` : ""}`, { method: initial ? "PUT" : "POST", body: JSON.stringify({ ...input, destinationAmount: destinationCode === "BRL" ? undefined : input.destinationAmount }) }); onSaved(); }
     catch (error) { setError((error as Error).message); } finally { setBusy(false); }
   }
   return <form noValidate className="form-stack" onSubmit={handleSubmit(save)}><fieldset disabled={busy} className="form-stack form-fieldset"><Feedback error={error || Object.values(errors)[0]?.message} />
     <p className="report-note">Movimentação entre contas. Não altera receitas, despesas nem o planejamento da renda.</p>
     {(["sourceAccountId", "destinationAccountId"] as const).map((name) => <Select key={name} id={`transfer-${name}`} label={name === "sourceAccountId" ? "De: conta de origem" : "Para: conta de destino"} {...register(name)}><option value="">Selecione uma conta</option>{accounts.filter((a) => a.isActive || a.id === initial?.[name]).map((a) => <option key={a.id} value={a.id}>{a.name}{!a.includeInTotalBalance ? " (fora do saldo geral)" : ""}</option>)}</Select>)}
-    <Controller control={control} name="amount" render={({ field }) => <MoneyField id="transfer-amount" label="Valor (R$)" {...field} onValueChange={field.onChange} error={errors.amount?.message} />} />
+    <Controller control={control} name="amount" render={({ field }) => <MoneyField id="transfer-amount" label={`Valor de saída (${sourceCode === "BRL" ? "R$" : sourceCode})`} {...field} onValueChange={field.onChange} error={errors.amount?.message} />} />
+    {destinationCode !== "BRL" && <Controller control={control} name="destinationAmount" render={({ field }) => <MoneyField id="transfer-destination-amount" label={`Valor recebido (${destinationCode}) — opcional`} value={field.value ?? ""} onValueChange={v => field.onChange(v || undefined)} hint="Se vazio, calculamos pela cotação de referência. Informe o valor efetivo para usar a conversão praticada." />} />}
     <Controller control={control} name="transferDate" render={({ field }) => <DateField id="transfer-date" name={field.name} label="Data" defaultValue={field.value} onValueChange={field.onChange} />} />
     <Controller control={control} name="competenceDate" render={({ field }) => <DateField id="transfer-competence" name={field.name} label="Competência" monthOnly defaultValue={field.value.slice(0, 7)} onValueChange={(v) => field.onChange(v ? `${v}-01` : "")} />} />
     <Field id="transfer-description" label="Descrição (opcional)" {...register("description")} maxLength={200} />

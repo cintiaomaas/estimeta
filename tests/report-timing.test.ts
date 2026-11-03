@@ -13,7 +13,7 @@ function fixture(failure?: Error) {
     financialGoal: { findMany: empty },
     transaction: { groupBy: async () => { if (failure) throw failure; return empty(); } },
   } as unknown as Prisma.TransactionClient;
-  const db = { $transaction: async (work: (tx: Prisma.TransactionClient) => Promise<unknown>, options: unknown) => {
+  const db = { account: { findMany: async () => [] }, $transaction: async (work: (tx: Prisma.TransactionClient) => Promise<unknown>, options: unknown) => {
     assert.deepEqual(options, { isolationLevel: "RepeatableRead", timeout: 15000 });
     return work(tx);
   } } as unknown as PrismaClient;

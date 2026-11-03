@@ -1,3 +1,4 @@
+import { prepareExchangeRates, valuationDate } from "./exchange-rates";
 import { unmeasuredReport, type MeasureReport } from "../lib/finance/report-timing";
 import { accountBalances, annualBalances, consolidatedBalance } from "./balances";
 import { Prisma, type PrismaClient, type Transaction } from "@prisma/client";
@@ -45,6 +46,7 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
   return {
     async dashboard(input: unknown) {
       const { year, month } = reportFilters(input, true, today);
+      await prepareExchangeRates(db, householdId, [valuationDate(monthDate(year, month + 1))]);
       return snapshot(async (tx) => {
         const period = periodWhere(year, month);
         const history = await measure("history", () => tx.transaction.groupBy({ by: ["competenceDate", "type"], where: { householdId, AND: [realized], competenceDate: { gte: monthDate(year, month - 5), lt: monthDate(year, month + 1) } }, _sum: { amount: true } }));
@@ -80,21 +82,23 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
         const expensesByCategory = grouped.map((row) => ({ id: row.categoryId, name: row.name, amount: money(row.amount), percentage: percentage(row.amount, current.expenses) }));
         const top = await measure("top_expenses", () => reportDetails(tx, householdId, monthDate(year, month), monthDate(year, month + 1), true));
         const recent = await measure("recent_transactions", () => reportDetails(tx, householdId, monthDate(year, month), monthDate(year, month + 1), false));
-        return { goals, planning, period: { year, month }, asOf: today, balance: accountBalance.value, balanceKind: "period" as const, accountCount: accountBalance.accountCount, ...current, pendingIncome: money(pendingIncome), pendingExpenses: money(pendingExpenses), overdueExpenses: money(overdueExpenses), comparison: { income: comparison(current.income, previous.income), expenses: comparison(current.expenses, previous.expenses), netSavings: comparison(current.netSavings, previous.netSavings) }, expensesByCategory, topExpenses: top.map((r) => serialize(r, today)), recentTransactions: recent.map((r) => serialize(r, today)), trend, availableYears: await measure("available_years", () => years(tx)) };
+        return { goals, planning, period: { year, month }, asOf: today, balance: accountBalance.value, exchangeIncomplete: accountBalance.exchangeIncomplete, exchangeStale: accountBalance.exchangeStale, balanceKind: "period" as const, accountCount: accountBalance.accountCount, ...current, pendingIncome: money(pendingIncome), pendingExpenses: money(pendingExpenses), overdueExpenses: money(overdueExpenses), comparison: { income: comparison(current.income, previous.income), expenses: comparison(current.expenses, previous.expenses), netSavings: comparison(current.netSavings, previous.netSavings) }, expensesByCategory, topExpenses: top.map((r) => serialize(r, today)), recentTransactions: recent.map((r) => serialize(r, today)), trend, availableYears: await measure("available_years", () => years(tx)) };
       });
     },
     async annual(input: unknown) {
       const { year } = reportFilters(input, false, today);
+      await prepareExchangeRates(db, householdId, [today, ...Array.from({ length: 12 }, (_, i) => valuationDate(monthDate(year, i + 2)))]);
       return snapshot(async (tx) => {
         const groups = await measure("annual_groups", () => tx.transaction.groupBy({ by: ["competenceDate", "categoryId", "type"], where: { householdId, AND: [realized], competenceDate: { gte: monthDate(year, 1), lt: monthDate(year + 1, 1) } }, _sum: { amount: true } }));
         const categories = await measure("annual_categories", () => tx.category.findMany({ where: { householdId, OR: [{ isActive: true }, { id: { in: groups.map((r) => r.categoryId) } }] }, select: { id: true, name: true, type: true, isActive: true }, orderBy: { name: "asc" } }));
         const divisor = averageMonths(year, today);
         const average = (values: string[]) => divisor ? money(values.slice(0, divisor).reduce((sum, v) => sum.plus(v), decimal()).div(divisor)) : null;
-        const balances = await measure("annual_balances", () => annualBalances(tx, householdId, year));
+        const exchangeStatus = { incomplete: false, stale: false };
+        const balances = await measure("annual_balances", () => annualBalances(tx, householdId, year, exchangeStatus));
         // Investments are Account rows too: sum each account once, without the
         // Saldo Geral inclusion filter. Use the current account period, not the report year.
         const currentAccounts = await measure("wealth", () => accountBalances(tx, householdId, monthDate(Number(today.slice(0, 4)), Number(today.slice(5, 7)) + 1)));
-        const totalWealth = money(currentAccounts.reduce((sum, account) => sum.plus(account.balance), decimal()));
+        const totalWealth = money(currentAccounts.reduce((sum, account) => sum.plus(account.balance ?? 0), decimal()));
         const monthlySummary: { month: number; income: string; expenses: string; netSavings: string; balance: string }[] = [];
         for (let index = 0; index < 12; index++) {
           const rows = groups.filter((r) => r.competenceDate.getUTCMonth() === index);
@@ -107,7 +111,7 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
           return { ...category, months, total: money(months.reduce((sum, v) => sum.plus(v), decimal())), average: average(months) };
         });
         const annualTotals = Object.fromEntries((["income", "expenses", "netSavings"] as const).map((key) => [key, money(monthlySummary.reduce((sum, row) => sum.plus(row[key]), decimal()))])) as { income: string; expenses: string; netSavings: string };
-        return { year, totalWealth, averageMonths: divisor, availableYears: await measure("available_years", () => years(tx)), monthlySummary, annualTotals: { ...annualTotals, balance: balances[11] }, averages: { income: average(monthlySummary.map((r) => r.income)), expenses: average(monthlySummary.map((r) => r.expenses)), netSavings: average(monthlySummary.map((r) => r.netSavings)) }, incomeCategories: categoryRows.filter((c) => c.type === "INCOME"), expenseCategories: categoryRows.filter((c) => c.type === "EXPENSE") };
+        return { year, totalWealth, exchangeIncomplete: exchangeStatus.incomplete || currentAccounts.some(a => a.balance === null), exchangeStale: exchangeStatus.stale || currentAccounts.some(a => a.exchange?.stale), averageMonths: divisor, availableYears: await measure("available_years", () => years(tx)), monthlySummary, annualTotals: { ...annualTotals, balance: balances[11] }, averages: { income: average(monthlySummary.map((r) => r.income)), expenses: average(monthlySummary.map((r) => r.expenses)), netSavings: average(monthlySummary.map((r) => r.netSavings)) }, incomeCategories: categoryRows.filter((c) => c.type === "INCOME"), expenseCategories: categoryRows.filter((c) => c.type === "EXPENSE") };
       });
     },
   };

@@ -1,3 +1,4 @@
+import { prepareExchangeRates, movementMoney, readQuote } from "./exchange-rates";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FinancialActor } from "./finance";
 import { AppError } from "../lib/api/errors";
@@ -13,7 +14,7 @@ import { displayDate, displayCompetence } from "../lib/finance/dates";
 const missing = () => new AppError("NOT_FOUND", "Registro não encontrado neste espaço familiar.", 404);
 const invalid = (message: string) => new AppError("INVALID_INPUT", message, 400);
 const accountNames = { sourceAccount: { select: { name: true } }, destinationAccount: { select: { name: true } } };
-const ruleNames = { account: { select: { name: true } }, category: { select: { name: true } } };
+const ruleNames = { account: { select: { name: true, currency: true } }, category: { select: { name: true } } };
 function serialize<T extends { amount: Prisma.Decimal }>(row: T) {
   return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value instanceof Date ? dateOnly(value) : key === "amount" ? row.amount.toFixed(2) : value]));
 }
@@ -43,18 +44,27 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
       ? outcome("ALREADY_EXISTS", `O lançamento de ${displayCompetence(competence)} já existe em Transações. Nenhuma cópia foi criada.`, existing.transaction.id)
       : outcome("DELETED", `O lançamento de ${displayCompetence(competence)} foi excluído anteriormente. Ele não será recriado automaticamente; se necessário, cadastre um lançamento avulso.`);
     await references(tx, rule);
+    const account = await tx.account.findFirstOrThrow({ where: scoped(rule.accountId) });
+    const converted = await movementMoney(tx, account.currency, rule.amount.toFixed(2));
     const occurrence = existing ?? await tx.recurringOccurrence.create({ data: { householdId, recurringTransactionId: id, competenceDate } });
-    const transaction = await tx.transaction.create({ data: { householdId, createdBy, accountId: rule.accountId, categoryId: rule.categoryId, type: rule.type, description: rule.description, amount: rule.amount, notes: rule.notes, competenceDate, scheduledDate: databaseDate(due), status: "PENDING", recurringOccurrenceId: occurrence.id } });
+    const transaction = await tx.transaction.create({ data: { householdId, createdBy, accountId: rule.accountId, categoryId: rule.categoryId, type: rule.type, description: rule.description, ...converted, notes: rule.notes, competenceDate, scheduledDate: databaseDate(due), status: "PENDING", recurringOccurrenceId: occurrence.id } });
     return outcome("CREATED", `Lançamento pendente de ${displayCompetence(competence)} criado, com vencimento em ${displayDate(due)}.`, transaction.id);
   }
   return {
     async createInstallments(input: unknown) {
       const data = installmentSchema.parse(input);
+      await prepareExchangeRates(db, householdId);
       return atomic(db, async (tx) => {
         await references(tx, data);
-        const plan = await tx.installmentPlan.create({ data: { householdId, createdBy, description: data.description, totalAmount: data.amount, installmentCount: data.installmentCount, firstCompetenceDate: databaseDate(data.competenceDate) } });
+        const account = await tx.account.findFirstOrThrow({ where: scoped(data.accountId) });
+        const total = await movementMoney(tx, account.currency, data.amount);
+        if (total.amount.mul(100).lt(data.installmentCount)) throw invalid("O equivalente em reais deve permitir pelo menos R$ 0,01 por parcela.");
+        const plan = await tx.installmentPlan.create({ data: { householdId, createdBy, description: data.description, totalAmount: total.amount, installmentCount: data.installmentCount, firstCompetenceDate: databaseDate(data.competenceDate) } });
         const amounts = splitInstallments(data.amount, data.installmentCount);
-        await tx.transaction.createMany({ data: amounts.map((amount, index) => ({ householdId, createdBy, accountId: data.accountId, categoryId: data.categoryId, type: "EXPENSE", description: data.description, amount, status: "PENDING", notes: data.notes, competenceDate: databaseDate(addMonthsClamped(data.competenceDate, index)), scheduledDate: databaseDate(addMonthsClamped(data.scheduledDate, index)), installmentPlanId: plan.id, installmentNumber: index + 1, installmentCount: data.installmentCount })) });
+        // Split both ledgers independently so rounding never changes either total.
+        const brlAmounts = splitInstallments(total.amount.toFixed(2), data.installmentCount);
+        const convertedAmounts = amounts.map((amount, i) => ({ amount: brlAmounts[i], originalAmount: account.currency === "BRL" ? null : amount, exchangeRate: total.exchangeRate }));
+        await tx.transaction.createMany({ data: amounts.map((amount, index) => ({ householdId, createdBy, accountId: data.accountId, categoryId: data.categoryId, type: "EXPENSE", description: data.description, ...convertedAmounts[index], status: "PENDING", notes: data.notes, competenceDate: databaseDate(addMonthsClamped(data.competenceDate, index)), scheduledDate: databaseDate(addMonthsClamped(data.scheduledDate, index)), installmentPlanId: plan.id, installmentNumber: index + 1, installmentCount: data.installmentCount })) });
         return { ...plan, totalAmount: plan.totalAmount.toFixed(2), firstCompetenceDate: dateOnly(plan.firstCompetenceDate) };
       });
     },
@@ -74,6 +84,7 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
     },
     async saveRecurring(input: unknown, id?: string) {
       const data = recurringSchema.parse(input);
+      await prepareExchangeRates(db, householdId);
       return atomic(db, async (tx) => {
         const previous = id ? await tx.recurringTransaction.findFirst({ where: scoped(id) }) : null;
         if (id && !previous) throw missing();
@@ -92,6 +103,18 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
         return serializeRule(rule);
       });
     },
+    async deleteRecurring(id: string) {
+      return atomic(db, async (tx) => {
+        if (!await tx.recurringTransaction.findFirst({ where: scoped(id) })) throw missing();
+        await tx.transaction.updateMany({
+          where: { householdId, recurringOccurrence: { recurringTransactionId: id, householdId } },
+          data: { recurringOccurrenceId: null },
+        });
+        await tx.recurringOccurrence.deleteMany({ where: { recurringTransactionId: id, householdId } });
+        await tx.recurringTransaction.delete({ where: scoped(id) });
+        return { message: "Recorrência excluída. Os lançamentos existentes foram preservados." };
+      });
+    },
     async deactivateRecurring(id: string) {
       return atomic(db, async (tx) => {
         if (!await tx.recurringTransaction.findFirst({ where: scoped(id) })) throw missing();
@@ -101,6 +124,7 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
     },
     async generateRecurring(id: string, input: unknown) {
       const data = generationSchema.parse(input);
+      await prepareExchangeRates(db, householdId);
       return atomic(db, async (tx) => generate(tx, id, data.competenceDate, true));
     },
     async transfers(input: unknown = {}) {
@@ -116,6 +140,7 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
     },
     async saveTransfer(input: unknown, id?: string) {
       const data = transferSchema.parse(input);
+      await prepareExchangeRates(db, householdId);
       return atomic(db, async (tx) => {
         const previous = id ? await tx.transfer.findFirst({ where: scoped(id) }) : null;
         if (id && !previous) throw missing();
@@ -124,7 +149,22 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
           const account = await tx.account.findFirst({ where: scoped(data[field]) });
           if (!account || (!account.isActive && previous?.[field] !== account.id)) throw invalid("Selecione contas ativas do seu espaço familiar.");
         }
-        const values = { ...data, amount: new Prisma.Decimal(data.amount), transferDate: databaseDate(data.transferDate), competenceDate: databaseDate(data.competenceDate) };
+        const source = await tx.account.findFirstOrThrow({ where: scoped(data.sourceAccountId) });
+        const destination = await tx.account.findFirstOrThrow({ where: scoped(data.destinationAccountId) });
+        const unchanged = previous && previous.sourceAccountId === source.id && previous.destinationAccountId === destination.id && (previous.sourceAmount ?? previous.amount).equals(data.amount) && (!data.destinationAmount || (previous.destinationAmount ?? previous.amount).equals(data.destinationAmount));
+        const converted = unchanged ? { amount: previous.amount } : await movementMoney(tx, source.currency, data.amount);
+        let destinationAmount = destination.currency === "BRL" ? converted.amount : null;
+        if (unchanged) destinationAmount = previous.destinationAmount;
+        else if (data.destinationAmount) destinationAmount = new Prisma.Decimal(data.destinationAmount);
+        else if (source.currency === destination.currency) destinationAmount = new Prisma.Decimal(data.amount);
+        else if (destination.currency !== "BRL") {
+          const quote = await readQuote(tx, destination.currency);
+          if (!quote || quote.stale) throw new AppError("EXCHANGE_UNAVAILABLE", "Cotação de destino indisponível. Atualize as cotações antes de transferir.", 503);
+          destinationAmount = converted.amount.div(quote.rate).toDecimalPlaces(2);
+        }
+        if (destination.currency === "BRL" && data.destinationAmount && !converted.amount.equals(data.destinationAmount)) throw invalid("O valor de destino em reais deve corresponder ao valor convertido da origem.");
+        if (destinationAmount && (destinationAmount.lte(0) || destinationAmount.gte("10000000000000"))) throw invalid("O valor de destino está fora do limite permitido.");
+        const values = { ...data, amount: converted.amount, sourceAmount: source.currency === "BRL" ? null : new Prisma.Decimal(data.amount), destinationAmount: destination.currency === "BRL" ? null : destinationAmount, transferDate: databaseDate(data.transferDate), competenceDate: databaseDate(data.competenceDate) };
         return serialize(id ? await tx.transfer.update({ where: scoped(id), data: values, include: accountNames }) : await tx.transfer.create({ data: { ...values, householdId, createdBy }, include: accountNames }));
       });
     },

@@ -21,7 +21,7 @@ function fixture(values: { initialBalance: string; movement?: string; type?: str
     transaction: { groupBy: async () => [] },
     transfer: { groupBy: async () => [] },
   } as unknown as Prisma.TransactionClient;
-  const db = { $transaction: async (work: (client: Prisma.TransactionClient) => Promise<unknown>) => work(tx) } as unknown as PrismaClient;
+  const db = { account: { findMany: async () => [] }, $transaction: async (work: (client: Prisma.TransactionClient) => Promise<unknown>) => work(tx) } as unknown as PrismaClient;
   return { tx, cutoffs, service: reportService(db, { householdId: "home", userId: "user" }, new Date("2026-10-09T12:00:00Z")) };
 }
 

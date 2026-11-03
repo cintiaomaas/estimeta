@@ -2,6 +2,7 @@
 import { CalendarPlus, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { RowActions, type RowAction } from "./transaction-actions";
 import type { AdvancedRecord } from "./advanced-forms";
+import { foreignMoney } from "@/lib/finance/currencies";
 import { currency } from "@/lib/finance/client";
 import { displayDate, displayCompetence } from "@/lib/finance/dates";
 
@@ -18,7 +19,8 @@ export function AdvancedList({ rows, recurring, onDetails, onEdit, onGenerate, o
     if (recurring) {
       if (row.isActive) items.push({ label: "Gerar competência", icon: CalendarPlus, onSelect: () => onGenerate(row) });
       items.push({ label: row.isActive ? "Desativar" : "Ativar", icon: row.isActive ? Pause : Play, onSelect: () => onToggle(row) });
-    } else items.push({ label: "Excluir", icon: Trash2, danger: true, onSelect: () => onDelete(row) });
+    }
+    items.push({ label: "Excluir", icon: Trash2, danger: true, onSelect: () => onDelete(row) });
     return <RowActions description={title(row)} items={items} />;
   }
   return <>
@@ -28,10 +30,10 @@ export function AdvancedList({ rows, recurring, onDetails, onEdit, onGenerate, o
     </tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => onDetails(row)}>
       <td><button className="ledger-description" aria-label={`Ver detalhes de ${title(row)}`} onClick={(e) => { e.stopPropagation(); onDetails(row); }}><strong>{title(row)}</strong><span>{recurring ? `${row.category.name} · ${row.account.name}` : row.description}</span></button></td>
       {recurring ? <><td>{type(row)}</td><td>Mensal · dia {row.dayOfMonth}</td><td>{next(row)}</td><td><span className="ledger-status">{row.isActive ? "Ativa" : "Desativada"}</span></td></> : <><td>{displayDate(row.transferDate)}</td><td>{displayCompetence(row.competenceDate)}</td></>}
-      <td className="ledger-value"><strong className="ledger-amount">{currency(row.amount)}</strong></td><td><div className="ledger-actions">{actions(row)}</div></td>
+      <td className="ledger-value"><strong className="ledger-amount">{(row.account?.currency && row.account.currency !== "BRL" ? foreignMoney(row.amount, row.account.currency) : currency(row.amount))}</strong></td><td><div className="ledger-actions">{actions(row)}</div></td>
     </tr>)}</tbody></table></div>
     <ul className="ledger-mobile advanced-mobile" aria-label={recurring ? "Recorrências" : "Transferências"}>{rows.map((row) => <li key={row.id}>
-      <button className="ledger-mobile-entry" aria-label={`Ver detalhes de ${title(row)}, ${currency(row.amount)}`} onClick={() => onDetails(row)}><span className="ledger-mobile-title">{title(row)}</span><strong className="ledger-amount">{currency(row.amount)}</strong>
+      <button className="ledger-mobile-entry" aria-label={`Ver detalhes de ${title(row)}, ${(row.account?.currency && row.account.currency !== "BRL" ? foreignMoney(row.amount, row.account.currency) : currency(row.amount))}`} onClick={() => onDetails(row)}><span className="ledger-mobile-title">{title(row)}</span><strong className="ledger-amount">{(row.account?.currency && row.account.currency !== "BRL" ? foreignMoney(row.amount, row.account.currency) : currency(row.amount))}</strong>
         {recurring ? <><span className="ledger-mobile-date">{type(row)} · Mensal · dia {row.dayOfMonth}</span><span className="ledger-mobile-date">Próximo: {next(row)} · {row.isActive ? "Ativa" : "Desativada"}</span></> : <span className="ledger-mobile-date">{displayDate(row.transferDate)} · Competência {displayCompetence(row.competenceDate)}</span>}
       </button>{actions(row)}
     </li>)}</ul>

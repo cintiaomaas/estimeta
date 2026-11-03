@@ -1,8 +1,10 @@
+import { prepareExchangeRates, refreshQuote, movementMoney, valuationDate } from "./exchange-rates";
 import { accountBalances } from "./balances";
+import { accountOrderSchema } from "../lib/validations/finance";
 import { z } from "zod";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { AppError } from "../lib/api/errors";
-import { accountSchema, categorySchema, transactionSchema, transactionFilterSchema, categoryFilterSchema } from "../lib/validations/finance";
+import { accountSchema, categorySchema, transactionSchema, transactionFilterSchema, categoryFilterSchema, expensePaymentSchema } from "../lib/validations/finance";
 import { databaseDate, dateOnly, displayStatus, todayInBrazil } from "../lib/finance/dates";
 import { monthDate } from "../lib/finance/report-math";
 
@@ -11,7 +13,7 @@ const notFound = () => new AppError("NOT_FOUND", "Registro não encontrado neste
 const invalid = (message: string) => new AppError("INVALID_INPUT", message, 400);
 const include = { account: { select: { id: true, name: true, isActive: true } }, category: { select: { id: true, name: true, isActive: true } } } satisfies Prisma.TransactionInclude;
 function serializeTransaction(row: Prisma.TransactionGetPayload<{ include: typeof include }>) {
-  const result = { ...row, amount: row.amount.toFixed(2), scheduledDate: dateOnly(row.scheduledDate), transactionDate: row.transactionDate ? dateOnly(row.transactionDate) : null, competenceDate: dateOnly(row.competenceDate) };
+  const result = { ...row, amount: row.amount.toFixed(2), originalAmount: row.originalAmount?.toFixed(2) ?? null, exchangeRate: row.exchangeRate?.toFixed(10) ?? null, scheduledDate: dateOnly(row.scheduledDate), transactionDate: row.transactionDate ? dateOnly(row.transactionDate) : null, competenceDate: dateOnly(row.competenceDate) };
   return { ...result, displayStatus: displayStatus(result) };
 }
 
@@ -32,10 +34,26 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
     async accounts(input: unknown = {}) {
       const filters = z.object({ year: transactionFilterSchema.shape.year, month: transactionFilterSchema.shape.month }).strict().parse(input);
       if (filters.month && !filters.year) throw invalid("Informe o ano ao filtrar por mês.");
+      const requestedPeriod = filters.year ? `${filters.year}-${String(filters.month ?? 12).padStart(2, "0")}` : todayInBrazil().slice(0, 7);
+      await prepareExchangeRates(db, householdId, [valuationDate(monthDate(Number(requestedPeriod.slice(0, 4)), Number(requestedPeriod.slice(5, 7)) + 1))]);
       return db.$transaction(async (tx) => {
         const period = filters.year ? `${filters.year}-${String(filters.month ?? 12).padStart(2, "0")}` : todayInBrazil().slice(0, 7);
         return (await accountBalances(tx, householdId, monthDate(Number(period.slice(0, 4)), Number(period.slice(5, 7)) + 1))).map((row) => ({ ...row, balancePeriod: period }));
       }, { isolationLevel: "RepeatableRead" });
+    },
+    async reorderAccounts(input: unknown) {
+      const { ids } = accountOrderSchema.parse(input);
+      return atomic(async (tx) => {
+        const accounts = await tx.account.findMany({ where: { householdId }, select: { id: true } });
+        const current = new Set(accounts.map(row => row.id));
+        if (current.size !== ids.length || ids.some(id => !current.has(id))) {
+          throw new AppError("CONFLICT", "A lista de contas mudou. Atualize a página e tente novamente.", 409);
+        }
+        for (const [position, id] of ids.entries()) {
+          await tx.account.update({ where: { id, householdId }, data: { position } });
+        }
+        return { message: "Ordem das contas salva." };
+      });
     },
     async account(id: string) {
       const row = await db.account.findFirst({ where: whereId(id) });
@@ -44,8 +62,14 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
     },
     async saveAccount(input: unknown, id?: string) {
       const data = accountSchema.parse(input);
+      if (data.currency) await refreshQuote(db, data.currency);
       return atomic(async (tx) => {
-        if (id && !await tx.account.findFirst({ where: whereId(id) })) throw notFound();
+        const previous = id ? await tx.account.findFirst({ where: whereId(id) }) : null;
+        if (id && !previous) throw notFound();
+        if (previous && data.currency && data.currency !== previous.currency) {
+          if (!previous.initialBalance.isZero() || await tx.transaction.count({ where: { householdId, accountId: id } }) || await tx.recurringTransaction.count({ where: { householdId, accountId: id } }) || await tx.transfer.count({ where: { householdId, OR: [{ sourceAccountId: id }, { destinationAccountId: id }] } }))
+            throw invalid("A moeda de uma conta com saldo inicial ou movimentações não pode mudar. Crie outra conta para preservar o histórico.");
+        }
         const row = id ? await tx.account.update({ where: { id, householdId }, data }) : await tx.account.create({ data: { ...data, householdId } });
         return { ...row, initialBalance: row.initialBalance.toFixed(2) };
       });
@@ -147,6 +171,7 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
     },
     async saveTransaction(input: unknown, id?: string) {
       const data = transactionSchema.parse(input);
+      await prepareExchangeRates(db, householdId);
       return atomic(async (tx) => {
         const previous = id ? await tx.transaction.findFirst({ where: whereId(id) }) : null;
         if (id && !previous) throw notFound();
@@ -157,9 +182,24 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
         if (!account || (!account.isActive && previous?.accountId !== account.id)) throw invalid("Selecione uma conta ativa do seu espaço familiar.");
         if (!category || (!category.isActive && previous?.categoryId !== category.id)) throw invalid("Selecione uma categoria ativa do seu espaço familiar.");
         if (category.type !== data.type) throw invalid("A categoria deve corresponder ao tipo de lançamento.");
-        const values = { ...data, amount: new Prisma.Decimal(data.amount), scheduledDate: databaseDate(data.scheduledDate), transactionDate: data.transactionDate ? databaseDate(data.transactionDate) : null, competenceDate: databaseDate(data.competenceDate) };
+        const values = { ...data, ...await movementMoney(tx, account.currency ?? "BRL", data.amount, previous?.accountId === account.id ? previous : null), scheduledDate: databaseDate(data.scheduledDate), transactionDate: data.transactionDate ? databaseDate(data.transactionDate) : null, competenceDate: databaseDate(data.competenceDate) };
         const row = id ? await tx.transaction.update({ where: { id, householdId }, data: values, include }) : await tx.transaction.create({ data: { ...values, householdId, createdBy: actor.userId }, include });
         return serializeTransaction(row);
+      });
+    },
+    async setExpensePayment(input: unknown, id: string) {
+      const data = expensePaymentSchema.parse(input);
+      return atomic(async (tx) => {
+        const previous = await tx.transaction.findFirst({ where: whereId(id) });
+        if (!previous) throw notFound();
+        if (previous.type !== "EXPENSE") throw invalid("Esta ação está disponível somente para despesas.");
+        if (previous.updatedAt.toISOString() !== data.expectedUpdatedAt || previous.status !== (data.status === "PAID" ? "PENDING" : "PAID")) {
+          throw new AppError("CONFLICT", "A despesa foi alterada. Atualize a lista e tente novamente.", 409);
+        }
+        return serializeTransaction(await tx.transaction.update({ where: { id, householdId }, data: {
+          status: data.status, transactionDate: data.transactionDate ? databaseDate(data.transactionDate) : null,
+          updatedAt: new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1)),
+        }, include }));
       });
     },
     async removeTransaction(id: string) {
