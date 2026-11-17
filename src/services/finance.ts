@@ -1,3 +1,4 @@
+import { sql, enumParameter, searchOperator } from "../lib/db/dialect";
 import { prepareExchangeRates, refreshQuote, movementMoney, valuationDate } from "./exchange-rates";
 import { accountBalances } from "./balances";
 import { accountOrderSchema } from "../lib/validations/finance";
@@ -36,10 +37,12 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
       if (filters.month && !filters.year) throw invalid("Informe o ano ao filtrar por mês.");
       const requestedPeriod = filters.year ? `${filters.year}-${String(filters.month ?? 12).padStart(2, "0")}` : todayInBrazil().slice(0, 7);
       await prepareExchangeRates(db, householdId, [valuationDate(monthDate(Number(requestedPeriod.slice(0, 4)), Number(requestedPeriod.slice(5, 7)) + 1))]);
-      return db.$transaction(async (tx) => {
+      const result = await db.$transaction(async (tx) => {
         const period = filters.year ? `${filters.year}-${String(filters.month ?? 12).padStart(2, "0")}` : todayInBrazil().slice(0, 7);
-        return (await accountBalances(tx, householdId, monthDate(Number(period.slice(0, 4)), Number(period.slice(5, 7)) + 1))).map((row) => ({ ...row, balancePeriod: period }));
+        const rows = (await accountBalances(tx, householdId, monthDate(Number(period.slice(0, 4)), Number(period.slice(5, 7)) + 1))).map((row) => ({ ...row, balancePeriod: period }));
+        return rows;
       }, { isolationLevel: "RepeatableRead" });
+      return result;
     },
     async reorderAccounts(input: unknown) {
       const { ids } = accountOrderSchema.parse(input);
@@ -104,7 +107,12 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
           if (previous.type !== data.type && (await tx.transaction.count({ where: { householdId, categoryId: id } }) || await tx.recurringTransaction.count({ where: { householdId, categoryId: id } }))) throw new AppError("CATEGORY_IN_USE", "Uma categoria utilizada não pode mudar de tipo. Crie outra categoria.", 409);
         }
         if (await tx.category.findFirst({ where: { householdId, type: data.type, name: data.name, ...(id ? { id: { not: id } } : {}) } })) throw new AppError("DUPLICATE_CATEGORY", "Já existe uma categoria com esse nome e tipo, inclusive entre as desativadas.", 409);
-        return id ? tx.category.update({ where: { id, householdId }, data }) : tx.category.create({ data: { ...data, householdId } });
+        try {
+          return id ? await tx.category.update({ where: { id, householdId }, data }) : await tx.category.create({ data: { ...data, householdId } });
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError("DUPLICATE_CATEGORY", "Já existe uma categoria com esse nome e tipo, inclusive entre as desativadas.", 409);
+          throw error;
+        }
       });
     },
     async removeCategory(id: string) {
@@ -123,39 +131,39 @@ export function financialService(db: PrismaClient, actor: FinancialActor) {
       const { page, limit, sort, order } = filters;
       const today = databaseDate(todayInBrazil());
       // Use the same parameterized predicate for the count and the joined page.
-      const conditions = [Prisma.sql`t.householdId = ${householdId}`];
-      if (filters.type) conditions.push(Prisma.sql`t.type = ${filters.type}`);
-      if (filters.accountId) conditions.push(Prisma.sql`t.accountId = ${filters.accountId}`);
-      if (filters.categoryId) conditions.push(Prisma.sql`t.categoryId = ${filters.categoryId}`);
-      if (filters.search !== undefined) conditions.push(Prisma.sql`t.description LIKE ${'%' + filters.search + '%'}`);
+      const conditions = [sql`t."householdId" = ${householdId}`];
+      if (filters.type) conditions.push(sql`t."type" = ${enumParameter(filters.type, "TransactionType")}`);
+      if (filters.accountId) conditions.push(sql`t."accountId" = ${filters.accountId}`);
+      if (filters.categoryId) conditions.push(sql`t."categoryId" = ${filters.categoryId}`);
+      if (filters.search !== undefined) conditions.push(sql`t."description" ${searchOperator()} ${'%' + filters.search + '%'}`);
       if (filters.status === "OVERDUE") {
-        conditions.push(Prisma.sql`t.type = 'EXPENSE' AND t.status = 'PENDING' AND t.scheduledDate < ${today}`);
+        conditions.push(sql`t."type" = 'EXPENSE' AND t."status" = 'PENDING' AND t."scheduledDate" < ${today}`);
       } else if (filters.status === "PENDING") {
-        conditions.push(Prisma.sql`t.status = 'PENDING' AND (t.type = 'INCOME' OR t.scheduledDate >= ${today})`);
-      } else if (filters.status) conditions.push(Prisma.sql`t.status = ${filters.status}`);
+        conditions.push(sql`t."status" = 'PENDING' AND (t."type" = 'INCOME' OR t."scheduledDate" >= ${today})`);
+      } else if (filters.status) conditions.push(sql`t."status" = ${enumParameter(filters.status, "TransactionStatus")}`);
       if (filters.year) {
         const year = String(filters.year).padStart(4, "0");
         const month = filters.month ? String(filters.month).padStart(2, "0") : "01";
         const lastMonth = filters.month ? month : "12";
-        conditions.push(Prisma.sql`t.competenceDate >= ${databaseDate(`${year}-${month}-01`)} AND t.competenceDate <= ${databaseDate(`${year}-${lastMonth}-01`)}`);
+        conditions.push(sql`t."competenceDate" >= ${databaseDate(`${year}-${month}-01`)} AND t."competenceDate" <= ${databaseDate(`${year}-${lastMonth}-01`)}`);
       }
-      if (filters.startDate) conditions.push(Prisma.sql`t.scheduledDate >= ${databaseDate(filters.startDate)}`);
-      if (filters.endDate) conditions.push(Prisma.sql`t.scheduledDate <= ${databaseDate(filters.endDate)}`);
+      if (filters.startDate) conditions.push(sql`t."scheduledDate" >= ${databaseDate(filters.startDate)}`);
+      if (filters.endDate) conditions.push(sql`t."scheduledDate" <= ${databaseDate(filters.endDate)}`);
       const where = Prisma.join(conditions, " AND ");
-      const field = sort === "date" ? Prisma.sql`t.scheduledDate` : sort === "amount" ? Prisma.sql`t.amount` : Prisma.sql`t.description`;
-      const direction = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+      const field = sort === "date" ? sql`t."scheduledDate"` : sort === "amount" ? sql`t."amount"` : sql`t."description"`;
+      const direction = order === "asc" ? sql`ASC` : sql`DESC`;
       return atomic(async (tx) => {
-        const counts = await tx.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT COUNT(*) AS total FROM Transaction t WHERE ${where}`);
+        const counts = await tx.$queryRaw<{ total: bigint }[]>(sql`SELECT COUNT(*) AS total FROM "Transaction" t WHERE ${where}`);
         const total = Number(counts[0].total);
         type Row = Prisma.TransactionGetPayload<Record<string, never>> & {
           accountName: string; accountActive: boolean | number; categoryName: string; categoryActive: boolean | number;
         };
-        const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
-          SELECT t.*, a.name AS accountName, a.isActive AS accountActive, c.name AS categoryName, c.isActive AS categoryActive
-          FROM Transaction t
-          INNER JOIN Account a ON a.id = t.accountId AND a.householdId = t.householdId
-          INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
-          WHERE ${where} ORDER BY ${field} ${direction}, t.id DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}
+        const rows = await tx.$queryRaw<Row[]>(sql`
+          SELECT t.*, a."name" AS "accountName", a."isActive" AS "accountActive", c."name" AS "categoryName", c."isActive" AS "categoryActive"
+          FROM "Transaction" t
+          INNER JOIN "Account" a ON a."id" = t."accountId" AND a."householdId" = t."householdId"
+          INNER JOIN "Category" c ON c."id" = t."categoryId" AND c."householdId" = t."householdId"
+          WHERE ${where} ORDER BY ${field} ${direction}, t."id" DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}
         `);
         const data = rows.map(({ accountName, accountActive, categoryName, categoryActive, ...row }) => serializeTransaction({ ...row,
           account: { id: row.accountId, name: accountName, isActive: Boolean(accountActive) },

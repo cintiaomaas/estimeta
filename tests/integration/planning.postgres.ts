@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +8,7 @@ import { planningService } from '../../src/services/planning';
 import { reportService } from '../../src/services/reports';
 import { AppError } from '../../src/lib/api/errors';
 import type { PlanningInput } from '../../src/lib/validations/planning';
-test('planejamento MySQL: persistência, compromissos, invariantes e isolamento', async (suite) => {
+test('planejamento PostgreSQL: persistência, compromissos, invariantes e isolamento', async (suite) => {
  assert.notEqual(process.env.NODE_ENV, 'production');
  const db=new PrismaClient(), households=[randomUUID(),randomUUID()], users=[randomUUID(),randomUUID()];
  try {

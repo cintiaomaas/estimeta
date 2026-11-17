@@ -1,22 +1,16 @@
-# dependencies
+﻿# Dependencies and generated application output
 node_modules/
-
-# Next.js build output
 .next/
 out/
-
-# environment variables
-.env*
-!.env.example
+public/swagger/
 *.tsbuildinfo
 coverage/
-
-# logs
 *.log
 
-# editor directories and files
-public/swagger/
+# Private configuration and local artifacts
+.env*
+!.env.example
+.local/
 .tmp/
-docs/
-AGENTS.md
+.vercel/
 tests/performance/

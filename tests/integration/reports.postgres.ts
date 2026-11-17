@@ -1,10 +1,11 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { financialService } from "../../src/services/finance";
 import { reportService } from "../../src/services/reports";
-test("relatórios MySQL: cenários determinísticos e isolamento", async (suite) => {
+test("relatórios PostgreSQL: cenários determinísticos e isolamento", async (suite) => {
   assert.notEqual(process.env.NODE_ENV, "production");
   const db = new PrismaClient();
   const householdIds = [randomUUID(), randomUUID()];

@@ -1,3 +1,4 @@
+import { matchingTextIds } from "../lib/db/text-search";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FinancialActor } from "./finance";
 import { atomic } from "./atomic";
@@ -45,8 +46,8 @@ export function goalsService(db: PrismaClient, actor: FinancialActor, today = to
   return {
     async list(input: unknown = {}) {
       const f = goalFilters.parse(input);
-      const where: Prisma.FinancialGoalWhereInput = { householdId, status: f.status, name: f.search ? { contains: f.search } : undefined, accountId: f.accountId,
-        participants: f.participant ? { some: { name: { contains: f.participant } } } : undefined,
+      const where: Prisma.FinancialGoalWhereInput = { householdId, status: f.status, id: f.search ? await matchingTextIds(db, "FinancialGoal", householdId, f.search) : undefined, accountId: f.accountId,
+        participants: f.participant ? { some: { id: await matchingTextIds(db, "GoalParticipant", householdId, f.participant) } } : undefined,
         ...(f.deadline === "NONE" ? { targetDate: null } : f.deadline ? { targetDate: f.deadline === "OVERDUE" ? { lt: databaseDate(today) } : { gte: databaseDate(today) } } : {}),
       };
       return db.$transaction(async tx => ({ data: (await tx.financialGoal.findMany({ where, include, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (f.page - 1) * f.limit, take: f.limit })).map(r => serialize(r, f.through ?? today, today)), pagination: { total: await tx.financialGoal.count({ where }), page: f.page, limit: f.limit } }), { isolationLevel: "RepeatableRead" });

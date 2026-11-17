@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum HouseholdRole {
@@ -21,8 +22,8 @@ model User {
   name                  String                 @db.VarChar(100)
   email                 String                 @unique @db.VarChar(191)
   passwordHash          String                 @db.VarChar(255)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  createdAt             DateTime               @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamp(3)
   membership            HouseholdMember?
   transactionsCreated   Transaction[]          @relation("TransactionCreator")
   installmentPlans      InstallmentPlan[]
@@ -36,8 +37,8 @@ model Household {
   goalContributions GoalContribution[]
   id                    String                 @id @default(uuid()) @db.Char(36)
   name                  String                 @db.VarChar(150)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  createdAt             DateTime               @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamp(3)
   members               HouseholdMember[]
   accounts              Account[]
   categories            Category[]
@@ -81,8 +82,8 @@ model Account {
   initialBalance        Decimal                @default(0) @db.Decimal(15, 2)
   includeInTotalBalance Boolean                @default(true)
   isActive              Boolean                @default(true)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  createdAt             DateTime               @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamp(3)
   household             Household              @relation(fields: [householdId], references: [id], onDelete: Restrict)
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
@@ -99,8 +100,8 @@ model Category {
   name                  String                  @db.VarChar(100)
   type                  TransactionType
   isActive              Boolean                 @default(true)
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
+  createdAt             DateTime                @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime                @updatedAt @db.Timestamp(3)
   household             Household               @relation(fields: [householdId], references: [id], onDelete: Restrict)
   transactions          Transaction[]
   planningLinks         PlanningGroupCategory[]
@@ -121,8 +122,8 @@ model IncomePlanning {
   incomeSource    PlanningIncomeSource @default(REALIZED)
   referenceIncome Decimal              @default(0) @db.Decimal(15, 2)
   revision        Int                  @default(0)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  createdAt       DateTime             @default(now()) @db.Timestamp(3)
+  updatedAt       DateTime             @updatedAt @db.Timestamp(3)
   household       Household            @relation(fields: [householdId], references: [id], onDelete: Cascade)
   groups          PlanningGroup[]
 }
@@ -135,8 +136,8 @@ model PlanningGroup {
   alertPercentage Decimal                 @db.Decimal(5, 2)
   active          Boolean                 @default(true)
   position        Int
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  createdAt       DateTime                @default(now()) @db.Timestamp(3)
+  updatedAt       DateTime                @updatedAt @db.Timestamp(3)
   planning        IncomePlanning          @relation(fields: [householdId], references: [householdId], onDelete: Cascade)
   categories      PlanningGroupCategory[]
 
@@ -173,8 +174,8 @@ model Transaction {
   status                TransactionStatus    @default(PENDING)
   notes                 String?              @db.VarChar(2000)
   createdBy             String               @db.Char(36)
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  createdAt             DateTime             @default(now()) @db.Timestamp(3)
+  updatedAt             DateTime             @updatedAt @db.Timestamp(3)
   household             Household            @relation(fields: [householdId], references: [id], onDelete: Restrict)
   account               Account              @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
   category              Category             @relation(fields: [categoryId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
@@ -209,8 +210,8 @@ model PushSubscription {
   active       Boolean  @default(true)
   sessionId    String?  @db.Char(36)
   expiresAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
+  updatedAt    DateTime @updatedAt @db.Timestamp(3)
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, active])
@@ -227,7 +228,7 @@ model NotificationLog {
   readAt        DateTime?
   type          String   @db.VarChar(40)
   referenceDate DateTime @db.Date
-  createdAt     DateTime @default(now())
+  createdAt     DateTime @default(now()) @db.Timestamp(3)
   sentAt        DateTime?
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
@@ -245,7 +246,7 @@ model NotificationDelivery {
   logId        String   @db.Char(36)
   endpointHash String   @db.Char(64)
   status       String   @default("CLAIMED") @db.VarChar(20)
-  createdAt    DateTime @default(now())
+  createdAt    DateTime @default(now()) @db.Timestamp(3)
   sentAt       DateTime?
   log          NotificationLog @relation(fields: [logId], references: [id], onDelete: Cascade)
 
@@ -257,7 +258,7 @@ model HouseholdMember {
   householdId String        @db.Char(36)
   userId      String        @unique @db.Char(36)
   role        HouseholdRole @default(MEMBER)
-  createdAt   DateTime      @default(now())
+  createdAt   DateTime      @default(now()) @db.Timestamp(3)
   household   Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -272,8 +273,8 @@ model InstallmentPlan {
   installmentCount    Int
   firstCompetenceDate DateTime      @db.Date
   createdBy           String        @db.Char(36)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  createdAt           DateTime      @default(now()) @db.Timestamp(3)
+  updatedAt           DateTime      @updatedAt @db.Timestamp(3)
   household           Household     @relation(fields: [householdId], references: [id], onDelete: Restrict)
   creator             User          @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   transactions        Transaction[]
@@ -297,8 +298,8 @@ model RecurringTransaction {
   notes       String?               @db.VarChar(2000)
   revision    Int                   @default(0)
   createdBy   String                @db.Char(36)
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  createdAt   DateTime              @default(now()) @db.Timestamp(3)
+  updatedAt   DateTime              @updatedAt @db.Timestamp(3)
   household   Household             @relation(fields: [householdId], references: [id], onDelete: Restrict)
   creator     User                  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   account     Account               @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
@@ -335,8 +336,8 @@ model Transfer {
   description          String    @db.VarChar(200)
   notes                String?   @db.VarChar(2000)
   createdBy            String    @db.Char(36)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime  @default(now()) @db.Timestamp(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamp(3)
   household            Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
   creator              User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   sourceAccount        Account   @relation("TransferSource", fields: [sourceAccountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
@@ -365,8 +366,8 @@ model FinancialGoal {
   status GoalStatus @default(ACTIVE)
   accountId String? @db.Char(36)
   createdBy String @db.Char(36)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  updatedAt DateTime @updatedAt @db.Timestamp(3)
   household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   account Account? @relation(fields: [accountId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
@@ -382,7 +383,7 @@ model GoalParticipant {
   goalId String @db.Char(36)
   name String @db.VarChar(100)
   isActive Boolean @default(true)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamp(3)
   household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
   goal FinancialGoal @relation(fields: [goalId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
   contributions GoalContribution[]
@@ -402,8 +403,8 @@ model GoalContribution {
   competenceDate DateTime @db.Date
   description String? @db.VarChar(2000)
   createdBy String @db.Char(36)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamp(3)
+  updatedAt DateTime @updatedAt @db.Timestamp(3)
   household Household @relation(fields: [householdId], references: [id], onDelete: Restrict)
   goal FinancialGoal @relation(fields: [goalId, householdId], references: [id, householdId], onDelete: Restrict, onUpdate: Restrict)
   participant GoalParticipant? @relation(fields: [participantId, goalId, householdId], references: [id, goalId, householdId], onDelete: Restrict, onUpdate: Restrict)
@@ -420,6 +421,6 @@ model ExchangeRate {
   referenceDate String   @db.Char(10)
   rate          Decimal  @db.Decimal(18, 10)
   source        String   @db.VarChar(100)
-  checkedAt     DateTime @default(now())
+  checkedAt     DateTime @default(now()) @db.Timestamp(3)
   @@id([currency, requestedDate])
 }

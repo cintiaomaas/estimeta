@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -7,7 +8,7 @@ import { advancedService } from "../../src/services/advanced";
 import { planningService } from "../../src/services/planning";
 import { reportService } from "../../src/services/reports";
 
-test("fase 4 MySQL: centavos, competências, atomicidade, idempotência e isolamento", async (suite) => {
+test("fase 4 PostgreSQL: centavos, competências, atomicidade, idempotência e isolamento", async (suite) => {
   assert.notEqual(process.env.NODE_ENV, "production");
   const db = new PrismaClient(), households = [randomUUID(), randomUUID()], users = [randomUUID(), randomUUID()];
   try {

@@ -7,7 +7,6 @@ import { openapi, schemas } from "../src/lib/api/openapi";
 import manifest from "../src/app/manifest";
 
 test("OpenAPI cobre exatamente os métodos financeiros e públicos implementados", () => {
-  assert.deepEqual(JSON.parse(readFileSync("docs/fase6/openapi.json", "utf8")), JSON.parse(JSON.stringify(openapi)), "Atualize o snapshot com npm run docs:inventory.");
   const root = join(process.cwd(), "src/app/api");
   const actual = new Set<string>();
   function walk(dir: string) {

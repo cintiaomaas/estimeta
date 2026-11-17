@@ -1,3 +1,5 @@
+import { sql } from "../lib/db/dialect";
+import { failureStage } from "../lib/api/diagnostics";
 import { readQuote, valuationDate } from "./exchange-rates";
 import { Prisma, type Account } from "@prisma/client";
 import { decimal, money, monthDate } from "../lib/finance/report-math";
@@ -42,29 +44,33 @@ export async function accountBalances(tx: Prisma.TransactionClient, householdId:
   type BalanceRow = Omit<Account, "isActive" | "includeInTotalBalance"> & {
     isActive: boolean | number; includeInTotalBalance: boolean | number; movement: Prisma.Decimal;
   };
-  const rows = await tx.$queryRaw<BalanceRow[]>(Prisma.sql`
+  const rows = await failureStage("balances.query", async () => {
+    const query = sql`
     SELECT a.*, COALESCE(m.movement, 0) AS movement
-    FROM Account a
+    FROM "Account" a
     LEFT JOIN (
-      SELECT accountId, SUM(amount) AS movement FROM (
-        SELECT accountId, SUM(CASE WHEN type = 'INCOME' THEN COALESCE(originalAmount, amount) ELSE -COALESCE(originalAmount, amount) END) AS amount
-        FROM Transaction
-        WHERE householdId = ${householdId} AND competenceDate < ${before}
-          AND ((type = 'INCOME' AND status = 'RECEIVED') OR (type = 'EXPENSE' AND status = 'PAID'))
-        GROUP BY accountId
+      SELECT "accountId", SUM("amount") AS movement FROM (
+        SELECT "accountId", SUM(CASE WHEN "type" = 'INCOME' THEN COALESCE("originalAmount", "amount") ELSE -COALESCE("originalAmount", "amount") END) AS "amount"
+        FROM "Transaction"
+        WHERE "householdId" = ${householdId} AND "competenceDate" < ${before}
+          AND (("type" = 'INCOME' AND "status" = 'RECEIVED') OR ("type" = 'EXPENSE' AND "status" = 'PAID'))
+        GROUP BY "accountId"
         UNION ALL
-        SELECT sourceAccountId AS accountId, -SUM(COALESCE(sourceAmount, amount)) AS amount FROM Transfer
-        WHERE householdId = ${householdId} AND competenceDate < ${before} GROUP BY sourceAccountId
+        SELECT "sourceAccountId" AS "accountId", -SUM(COALESCE("sourceAmount", "amount")) AS "amount" FROM "Transfer"
+        WHERE "householdId" = ${householdId} AND "competenceDate" < ${before} GROUP BY "sourceAccountId"
         UNION ALL
-        SELECT destinationAccountId AS accountId, SUM(COALESCE(destinationAmount, amount)) AS amount FROM Transfer
-        WHERE householdId = ${householdId} AND competenceDate < ${before} GROUP BY destinationAccountId
-      ) movements GROUP BY accountId
-    ) m ON m.accountId = a.id
-    WHERE a.householdId = ${householdId}
-    ORDER BY a.position ASC, a.isActive DESC, a.name ASC, a.id ASC
-  `);
-  const quotes = new Map(await Promise.all([...new Set(rows.map(r => r.currency ?? "BRL"))].map(async code => [code, await readQuote(tx, code, valuationDate(before))] as const)));
-  return rows.map(({ movement, ...row }) => {
+        SELECT "destinationAccountId" AS "accountId", SUM(COALESCE("destinationAmount", "amount")) AS "amount" FROM "Transfer"
+        WHERE "householdId" = ${householdId} AND "competenceDate" < ${before} GROUP BY "destinationAccountId"
+      ) movements GROUP BY "accountId"
+    ) m ON m."accountId" = a."id"
+    WHERE a."householdId" = ${householdId}
+    ORDER BY a."position" ASC, a."isActive" DESC, a."name" ASC, a."id" ASC
+  `;
+    const result = await tx.$queryRaw<BalanceRow[]>(query);
+    return result;
+  });
+  const quotes = new Map(await failureStage("balances.quotes", () => Promise.all([...new Set(rows.map(r => r.currency ?? "BRL"))].map(async code => [code, await readQuote(tx, code, valuationDate(before))] as const))));
+  return failureStage("balances.serialize", () => rows.map(({ movement, ...row }) => {
     const code = row.currency ?? "BRL", quote = quotes.get(code) ?? null;
     const native = decimal(row.initialBalance).plus(movement);
     const rate = code === "BRL" ? "1" : quote?.rate;
@@ -73,7 +79,7 @@ export async function accountBalances(tx: Prisma.TransactionClient, householdId:
       initialBalance: money(row.initialBalance), initialBalanceBRL: rate ? money(decimal(row.initialBalance).mul(rate)) : null,
       balance: rate ? money(native.mul(rate)) : null, originalBalance: money(native), exchange: quote,
     };
-  });
+  }));
 }
 export async function consolidatedBalance(tx: Prisma.TransactionClient, householdId: string, before: Date) {
   const rows = await accountBalances(tx, householdId, before);

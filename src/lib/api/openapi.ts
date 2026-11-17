@@ -162,7 +162,7 @@ add("/api/dashboard", "get", "Dashboard", "Resumo mensal", ref("Dashboard"), { q
 add("/api/reports/annual", "get", "Reports", "Resumo anual", ref("Annual"), { query: z.object({ year: reportQuery.year }), errors: readErrors, description: "Ano padrão atual no Brasil. Doze meses; saldo anual é dezembro, não a soma mensal. Média indisponível em ano futuro." });
 add("/api/auth/register", "post", "Authentication", "Cadastrar usuário e Household", object({ user: ref("PublicUser") }), { public: true, status: 201, body: "RegisterRequest", errors: [400, 409, 500], description: rules.RegisterRequest });
 add("/api/users/me", "get", "Authentication", "Usuário e vínculo da sessão", object({ user: ref("CurrentUser") }), { errors: [401, 500] });
-add("/api/health", "get", "Health", "Disponibilidade da aplicação e MySQL", object({ status: { const: "ok" }, database: { const: "connected" } }), { public: true, raw: true, errors: [], description: "Executa SELECT 1. Público, no-store; não retorna versões, host ou credenciais." });
+add("/api/health", "get", "Health", "Disponibilidade da aplicação e PostgreSQL", object({ status: { const: "ok" }, database: { const: "connected" } }), { public: true, raw: true, errors: [], description: "Executa SELECT 1. Público, no-store; não retorna versões, host ou credenciais." });
 paths["/api/health"].get.responses["503"] = { description: "Banco indisponível.", content: json(object({ status: { const: "error" }, database: { const: "unavailable" } })) };
 
 // Concrete Auth.js actions handled by the existing catch-all, not duplicate route handlers.

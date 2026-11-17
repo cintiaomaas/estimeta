@@ -1,3 +1,4 @@
+import { sql } from "../lib/db/dialect";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FinancialActor } from "./finance";
 import { planningSchema, type PlanningInput } from "../lib/validations/planning";
@@ -11,14 +12,14 @@ export async function planningConfig(tx: Prisma.TransactionClient, householdId: 
     groupId: string | null; name: string | null; percentage: Prisma.Decimal | null;
     alertPercentage: Prisma.Decimal | null; active: boolean | number | null; categoryId: string | null;
   };
-  const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
-    SELECT p.enabled, p.incomeSource, p.referenceIncome, p.revision,
-      g.id AS groupId, g.name, g.percentage, g.alertPercentage, g.active, l.categoryId
-    FROM IncomePlanning p
-    LEFT JOIN PlanningGroup g ON g.householdId = p.householdId
-    LEFT JOIN PlanningGroupCategory l ON l.planningGroupId = g.id AND l.householdId = g.householdId
-    WHERE p.householdId = ${householdId}
-    ORDER BY g.position ASC, l.categoryId ASC
+  const rows = await tx.$queryRaw<Row[]>(sql`
+    SELECT p."enabled", p."incomeSource", p."referenceIncome", p."revision",
+      g."id" AS "groupId", g."name", g."percentage", g."alertPercentage", g."active", l."categoryId"
+    FROM "IncomePlanning" p
+    LEFT JOIN "PlanningGroup" g ON g."householdId" = p."householdId"
+    LEFT JOIN "PlanningGroupCategory" l ON l."planningGroupId" = g."id" AND l."householdId" = g."householdId"
+    WHERE p."householdId" = ${householdId}
+    ORDER BY g."position" ASC, l."categoryId" ASC
   `);
   if (!rows.length) return { enabled: false, incomeSource: "REALIZED", referenceIncome: "0.00", revision: 0, groups: [] };
   const groups = new Map<string, PlanningInput["groups"][number]>();

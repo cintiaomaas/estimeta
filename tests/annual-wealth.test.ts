@@ -9,7 +9,7 @@ function fixture(values: { initialBalance: string; movement?: string; type?: str
   const cutoffs: Date[] = [];
   const tx = {
     $queryRaw: async (query: Prisma.Sql) => {
-      if (query.sql.includes("FROM Account")) {
+      if (/FROM "?Account"?\b/.test(query.sql)) {
         assert.equal(query.values[0], "home");
         cutoffs.push(query.values[1] as Date);
         return accounts;
