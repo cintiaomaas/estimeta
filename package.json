@@ -2,11 +2,13 @@
   "name": "estimeta",
   "version": "0.1.0",
   "private": true,
-  "scarfSettings": { "enabled": false },
+  "scarfSettings": {
+    "enabled": false
+  },
   "scripts": {
     "docs:assets": "node scripts/prepare-api-docs.mjs",
     "docs:inventory": "tsx scripts/api-inventory.ts",
-    "test:performance": "node --env-file=.env --import tsx scripts/measure-performance.ts",
+    "test:performance": "node --import ./scripts/load-env.mjs --import tsx scripts/measure-performance.ts",
     "predev": "npm run docs:assets",
     "prebuild": "npm run docs:assets",
     "dev": "next dev",
@@ -15,17 +17,13 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "test:mysql": "node --env-file=.env --import tsx --test tests/integration/*.mysql.ts",
-    "test:http": "node --env-file=.env --import tsx --test tests/integration/*.http.ts",
+    "test:http": "node scripts/test-postgres.mjs --http",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "prisma db seed",
-    "db:financial-defaults": "tsx scripts/initialize-financial-defaults.ts",
-    "postinstall": "prisma generate"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "db:financial-defaults": "node --import ./scripts/load-env.mjs --import tsx scripts/initialize-financial-defaults.ts",
+    "postinstall": "prisma generate",
+    "test:postgres": "node scripts/test-postgres.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

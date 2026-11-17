@@ -1,4 +1,4 @@
-/** Financial dates are YYYY-MM-DD strings at the API boundary and MySQL DATEs. */
+/** Financial dates are YYYY-MM-DD strings at the API boundary and PostgreSQL DATEs. */
 export function dateOnly(date: Date) { return date.toISOString().slice(0, 10); }
 export function databaseDate(date: string) { return new Date(`${date}T00:00:00.000Z`); }
 export function todayInBrazil(now = new Date()) {

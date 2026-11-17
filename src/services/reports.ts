@@ -1,3 +1,4 @@
+import { sql, competenceYear } from "../lib/db/dialect";
 import { prepareExchangeRates, valuationDate } from "./exchange-rates";
 import { unmeasuredReport, type MeasureReport } from "../lib/finance/report-timing";
 import { accountBalances, annualBalances, consolidatedBalance } from "./balances";
@@ -16,15 +17,15 @@ const serialize = (row: Detail, today: string) => ({ ...row, amount: money(row.a
 // Fetch the bounded report rows and their labels in one trip, within the caller's snapshot.
 async function reportDetails(tx: Prisma.TransactionClient, householdId: string, start: Date, end: Date, top: boolean): Promise<Detail[]> {
   type Row = Omit<Detail, "account" | "category"> & { accountName: string; categoryName: string };
-  const rows = await tx.$queryRaw<Row[]>(Prisma.sql`
-    SELECT t.id, t.type, t.description, t.amount, t.status, t.scheduledDate,
-      t.competenceDate, t.transactionDate, a.name AS accountName, c.name AS categoryName
-    FROM Transaction t
-    INNER JOIN Account a ON a.id = t.accountId AND a.householdId = t.householdId
-    INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
-    WHERE t.householdId = ${householdId} AND t.competenceDate >= ${start} AND t.competenceDate < ${end}
-      ${top ? Prisma.sql`AND t.type = 'EXPENSE' AND t.status = 'PAID'` : Prisma.empty}
-    ORDER BY ${top ? Prisma.sql`t.amount DESC, t.id ASC` : Prisma.sql`t.createdAt DESC, t.id DESC`}
+  const rows = await tx.$queryRaw<Row[]>(sql`
+    SELECT t."id", t."type", t."description", t."amount", t."status", t."scheduledDate",
+      t."competenceDate", t."transactionDate", a."name" AS "accountName", c."name" AS "categoryName"
+    FROM "Transaction" t
+    INNER JOIN "Account" a ON a."id" = t."accountId" AND a."householdId" = t."householdId"
+    INNER JOIN "Category" c ON c."id" = t."categoryId" AND c."householdId" = t."householdId"
+    WHERE t."householdId" = ${householdId} AND t."competenceDate" >= ${start} AND t."competenceDate" < ${end}
+      ${top ? sql`AND t."type" = 'EXPENSE' AND t."status" = 'PAID'` : Prisma.empty}
+    ORDER BY ${top ? sql`t."amount" DESC, t."id" ASC` : sql`t."createdAt" DESC, t."id" DESC`}
     LIMIT 5
   `);
   return rows.map(({ accountName, categoryName, ...row }) => ({ ...row, account: { name: accountName }, category: { name: categoryName } }));
@@ -36,7 +37,7 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
   const today = todayInBrazil(now);
   const snapshot = <T>(work: (tx: Prisma.TransactionClient) => Promise<T>) => measure("snapshot", () => db.$transaction(work, { isolationLevel: "RepeatableRead", timeout: 15000 }));
   async function years(tx: Prisma.TransactionClient) {
-    const rows = await tx.$queryRaw<{ year: number }[]>(Prisma.sql`SELECT DISTINCT YEAR(competenceDate) AS year FROM Transaction WHERE householdId = ${householdId} UNION SELECT DISTINCT YEAR(competenceDate) AS year FROM Transfer WHERE householdId = ${householdId} ORDER BY year`);
+    const rows = await tx.$queryRaw<{ year: number }[]>(sql`SELECT DISTINCT ${competenceYear()} AS year FROM "Transaction" WHERE "householdId" = ${householdId} UNION SELECT DISTINCT ${competenceYear()} AS year FROM "Transfer" WHERE "householdId" = ${householdId} ORDER BY year`);
     return [...new Set([...rows.map((row) => Number(row.year)), Number(today.slice(0, 4))])].sort((a, b) => b - a);
   }
   async function balance(tx: Prisma.TransactionClient, before: Date) {
@@ -71,13 +72,13 @@ export function reportService(db: PrismaClient, actor: FinancialActor, now = new
           else if (displayStatus({ type: row.type, status: "PENDING", scheduledDate: dateOnly(row.scheduledDate) }, today) === "OVERDUE") overdueExpenses = overdueExpenses.plus(amount);
           else pendingExpenses = pendingExpenses.plus(amount);
         }
-        const grouped = await measure("expense_categories", () => tx.$queryRaw<{ categoryId: string; name: string; amount: Prisma.Decimal }[]>(Prisma.sql`
-          SELECT t.categoryId, c.name, SUM(t.amount) AS amount
-          FROM Transaction t
-          INNER JOIN Category c ON c.id = t.categoryId AND c.householdId = t.householdId
-          WHERE t.householdId = ${householdId} AND t.competenceDate >= ${monthDate(year, month)}
-            AND t.competenceDate < ${monthDate(year, month + 1)} AND t.type = 'EXPENSE' AND t.status = 'PAID'
-          GROUP BY t.categoryId, c.name ORDER BY SUM(t.amount) DESC
+        const grouped = await measure("expense_categories", () => tx.$queryRaw<{ categoryId: string; name: string; amount: Prisma.Decimal }[]>(sql`
+          SELECT t."categoryId", c."name", SUM(t."amount") AS "amount"
+          FROM "Transaction" t
+          INNER JOIN "Category" c ON c."id" = t."categoryId" AND c."householdId" = t."householdId"
+          WHERE t."householdId" = ${householdId} AND t."competenceDate" >= ${monthDate(year, month)}
+            AND t."competenceDate" < ${monthDate(year, month + 1)} AND t."type" = 'EXPENSE' AND t."status" = 'PAID'
+          GROUP BY t."categoryId", c."name" ORDER BY SUM(t."amount") DESC
         `));
         const expensesByCategory = grouped.map((row) => ({ id: row.categoryId, name: row.name, amount: money(row.amount), percentage: percentage(row.amount, current.expenses) }));
         const top = await measure("top_expenses", () => reportDetails(tx, householdId, monthDate(year, month), monthDate(year, month + 1), true));

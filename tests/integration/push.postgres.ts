@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createECDH } from "node:crypto";
@@ -6,7 +7,7 @@ import { notifications } from "../../src/services/notifications";
 import { pushSubscriptions } from "../../src/services/push-subscriptions";
 import { sendDueNotifications, dueExpenseWhere } from "../../src/services/due-notifications";
 
-test("Web Push MySQL: seleção, isolamento, concorrência e persistência", async () => {
+test("Web Push PostgreSQL: seleção, isolamento, concorrência e persistência", async () => {
   assert.notEqual(process.env.NODE_ENV, "production");
   const db = new PrismaClient();
   const users = [randomUUID(), randomUUID(), randomUUID()];

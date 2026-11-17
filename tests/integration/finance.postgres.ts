@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -7,7 +8,7 @@ import { initializeFinancialDefaults } from "../../src/services/financial-defaul
 import { defaultCategories } from "../../src/lib/finance/defaults";
 import { AppError } from "../../src/lib/api/errors";
 
-test("núcleo financeiro integrado ao MySQL: persistência, integridade e isolamento", async (suite) => {
+test("núcleo financeiro integrado ao PostgreSQL: persistência, integridade e isolamento", async (suite) => {
   assert.notEqual(process.env.NODE_ENV, "production", "Não execute testes no ambiente de produção.");
   const db = new PrismaClient();
   const householdIds = [randomUUID(), randomUUID()];

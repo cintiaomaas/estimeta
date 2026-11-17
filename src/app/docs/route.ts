@@ -1,0 +1,5 @@
+export function GET() {
+  return new Response(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>API | estimeta</title><link rel="icon" href="/icon.svg"><link rel="stylesheet" href="/swagger/swagger-ui.css"><link rel="stylesheet" href="/api-docs.css"></head>
+<body><header><h1>estimeta · Documentação da API</h1><p>Contratos da aplicação. Documentação somente leitura; autentique-se pela tela de login para usar o aplicativo.</p><nav aria-label="Links da documentação"><a href="/dashboard">Voltar ao aplicativo</a> · <a href="/api/openapi">OpenAPI JSON</a></nav></header><main id="swagger-ui" aria-label="Referência da API"><p>Carregando documentação…</p></main><noscript>Ative JavaScript ou consulte o documento OpenAPI JSON.</noscript><script src="/swagger/swagger-ui-bundle.js" defer></script><script src="/api-docs.js" defer></script></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}

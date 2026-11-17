@@ -40,10 +40,9 @@ async function main() {
       const times = samples.map(s => s.ms).sort((a, b) => a - b);
       measurements.push({ name, medianMs: times[2], maxMs: times[4], samples });
     }
-    const plan = await db.$queryRaw<Record<string, unknown>[]>`EXPLAIN FORMAT=TRADITIONAL SELECT id FROM Transaction WHERE householdId = ${householdId} AND competenceDate >= '2026-09-01' AND competenceDate < '2026-10-01'`;
-    mkdirSync("docs/fase6", { recursive: true });
-    // Prisma/MySQL may label EXPLAIN columns f0..f11 instead of their display names.
-    writeFileSync("docs/fase6/performance.json", JSON.stringify({ measuredAt: new Date().toISOString(), environment: "MySQL local, serviços sem HTTP, cinco amostras após aquecimento; não é SLA nem ensaio de carga", fixture: { transactions: 2400, goals: 1, contributions: 120 }, measurements, explain: plan.map(row => ({ type: row.type ?? row.f4, possible_keys: row.possible_keys ?? row.f5, key: row.key ?? row.f6, rows: String(row.rows ?? row.f9), extra: row.Extra ?? row.f11 })) }, null, 2) + "\n");
+    const plan = await db.$queryRaw<Record<string, unknown>[]>`EXPLAIN (FORMAT JSON) SELECT "id" FROM "Transaction" WHERE "householdId" = ${householdId} AND "competenceDate" >= '2026-09-01' AND "competenceDate" < '2026-10-01'`;
+    mkdirSync(".tmp/performance", { recursive: true });
+    writeFileSync(".tmp/performance/performance.json", JSON.stringify({ measuredAt: new Date().toISOString(), environment: "PostgreSQL local, serviços sem HTTP, cinco amostras após aquecimento; não é SLA nem ensaio de carga", fixture: { transactions: 2400, goals: 1, contributions: 120 }, measurements, explain: plan }, null, 2) + "\n");
     console.info(measurements.map(m => ({ name: m.name, medianMs: m.medianMs, queries: m.samples[0].queries, bytes: m.samples[0].bytes })));
   } finally {
     const where = { householdId };

@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -72,7 +73,7 @@ test("leituras agrupadas preservam precisão, limites de competência, relaçõe
       }
     });
     await suite.test("planejamento: grupos inativos, múltiplas categorias e grupo vazio", async () => {
-      const row = await db.incomePlanning.findUniqueOrThrow({ where: { householdId: homes[0] }, include: { groups: { orderBy: { position: "asc" }, include: { categories: true } } } });
+      const row = await db.incomePlanning.findUniqueOrThrow({ where: { householdId: homes[0] }, include: { groups: { orderBy: { position: "asc" }, include: { categories: { orderBy: { categoryId: "asc" } } } } } });
       const start = queries;
       const actual = await planningConfig(db, homes[0]);
       assert.equal(queries - start, 1);

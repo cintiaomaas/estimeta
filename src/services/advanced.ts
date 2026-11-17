@@ -1,3 +1,4 @@
+import { matchingTextIds } from "../lib/db/text-search";
 import { prepareExchangeRates, movementMoney, readQuote } from "./exchange-rates";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { FinancialActor } from "./finance";
@@ -75,7 +76,7 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
     },
     async recurring(input: unknown = {}) {
       const filters = advancedFilters.parse(input);
-      const where = { householdId, accountId: filters.accountId, description: filters.search ? { contains: filters.search } : undefined };
+      const where = { householdId, accountId: filters.accountId, id: filters.search ? await matchingTextIds(db, "RecurringTransaction", householdId, filters.search) : undefined };
       return db.$transaction(async (tx) => ({ data: (await tx.recurringTransaction.findMany({ where, include: ruleNames, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (filters.page - 1) * filters.limit, take: filters.limit })).map(serializeRule), pagination: { page: filters.page, total: await tx.recurringTransaction.count({ where }), limit: filters.limit } }), { isolationLevel: "RepeatableRead" });
     },
     async recurringById(id: string) {
@@ -129,7 +130,7 @@ export function advancedService(db: PrismaClient, actor: FinancialActor) {
     },
     async transfers(input: unknown = {}) {
       const filters = advancedFilters.parse(input);
-      const where: Prisma.TransferWhereInput = { householdId, description: filters.search ? { contains: filters.search } : undefined,
+      const where: Prisma.TransferWhereInput = { householdId, id: filters.search ? await matchingTextIds(db, "Transfer", householdId, filters.search) : undefined,
         ...(filters.accountId ? { OR: [{ sourceAccountId: filters.accountId }, { destinationAccountId: filters.accountId }] } : {}),
         ...(filters.year ? { competenceDate: { gte: monthDate(filters.year, filters.month ?? 1), lt: monthDate(filters.year, filters.month ? filters.month + 1 : 13) } } : {}) };
       return db.$transaction(async (tx) => ({ data: (await tx.transfer.findMany({ where, include: accountNames, orderBy: [{ competenceDate: "desc" }, { id: "desc" }], skip: (filters.page - 1) * filters.limit, take: filters.limit })).map(serialize), pagination: { page: filters.page, total: await tx.transfer.count({ where }), limit: filters.limit } }), { isolationLevel: "RepeatableRead" });

@@ -5,13 +5,11 @@ import { requireApiUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { financialService } from "@/services/finance";
 import { apiError, AppError, handleApiError } from "./errors";
+import { assertRequestOrigin } from "./request-origin";
 
 export async function financialActor(request: Request) {
   // Cookie-authenticated mutations must originate from this application.
-  if (!["GET", "HEAD"].includes(request.method)) {
-    const origin = request.headers.get("origin");
-    if ((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site") throw new AppError("FORBIDDEN", "Origem da solicitação não permitida.", 403);
-  }
+  assertRequestOrigin(request);
   const user = await requireApiUser();
   if (!user.membership) throw new AppError("NO_HOUSEHOLD", "Seu usuário não possui um espaço familiar.", 403);
   return { userId: user.id, householdId: user.membership.household.id };

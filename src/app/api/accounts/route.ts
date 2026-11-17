@@ -1,10 +1,11 @@
 import { requestTiming } from "@/lib/api/timing";
+import { failureStage } from "@/lib/api/diagnostics";
 import { financeContext, financeError, financeResponse, readJson } from "@/lib/api/finance";
 export async function GET(request: Request) {
   const timing = requestTiming();
   try {
-    const service = await timing.measure("auth", () => financeContext(request));
-    const result = await timing.measure("data", () => service.accounts(Object.fromEntries(new URL(request.url).searchParams)));
+    const service = await timing.measure("auth", () => failureStage("accounts.auth", () => financeContext(request)));
+    const result = await timing.measure("data", () => failureStage("accounts.data", () => service.accounts(Object.fromEntries(new URL(request.url).searchParams))));
     return timing.finish(financeResponse({ data: result }));
   } catch (error) { return timing.finish(financeError(error)); }
 }

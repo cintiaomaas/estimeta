@@ -1,3 +1,4 @@
+import "./postgres-target";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -6,7 +7,7 @@ import { goalsService } from "../../src/services/goals";
 import { financialService } from "../../src/services/finance";
 import { advancedService } from "../../src/services/advanced";
 import { reportService } from "../../src/services/reports";
-test("fase 5 MySQL: progresso, competência, isolamento e regressão financeira", async suite => {
+test("fase 5 PostgreSQL: progresso, competência, isolamento e regressão financeira", async suite => {
   assert.notEqual(process.env.NODE_ENV, "production");
   const db = new PrismaClient(), households = [randomUUID(), randomUUID()], users = [randomUUID(), randomUUID()];
   try {

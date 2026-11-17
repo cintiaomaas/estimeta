@@ -10,5 +10,5 @@ export async function referenceAccountBalances(tx: Prisma.TransactionClient, hou
     const transfers = await tx.transfer.groupBy({ by: [field], where: { householdId, competenceDate: { lt: before } }, _sum: { amount: true } });
     for (const row of transfers) values.set(row[field], values.get(row[field])!.plus(decimal(row._sum.amount ?? 0).mul(field === "sourceAccountId" ? -1 : 1)));
   }
-  return rows.map((row) => ({ ...row, initialBalance: money(row.initialBalance), balance: money(values.get(row.id)!) }));
+  return rows.map((row) => ({ ...row, initialBalance: money(row.initialBalance), initialBalanceBRL: money(row.initialBalance), balance: money(values.get(row.id)!), originalBalance: money(values.get(row.id)!), exchange: null }));
 }
